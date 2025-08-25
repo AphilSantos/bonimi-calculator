@@ -1,0 +1,25 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "40e962b08f4d9f265def805e409d646a"
+name = "Bonimi Calculator"
+application_url = "https://jd-internet-enquiry-notes.trycloudflare.com"
+embedded = true
+handle = "bonimi-calculator"
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2025-07"
+topics = ["cart/updated", "orders/create"]
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products,read_products,write_orders,read_orders"
+
+[auth]
+redirect_urls = ["https://jd-internet-enquiry-notes.trycloudflare.com/auth/callback", "https://jd-internet-enquiry-notes.trycloudflare.com/auth/shopify/callback", "https://jd-internet-enquiry-notes.trycloudflare.com/api/auth/callback"]
+
+[pos]
+embedded = false
