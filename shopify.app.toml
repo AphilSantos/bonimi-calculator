@@ -2,7 +2,7 @@
 
 client_id = "40e962b08f4d9f265def805e409d646a"
 name = "Bonimi Calculator"
-application_url = "https://jd-internet-enquiry-notes.trycloudflare.com"
+application_url = "https://path-ko-foundations-mlb.trycloudflare.com"
 embedded = true
 handle = "bonimi-calculator"
 
@@ -19,7 +19,7 @@ topics = ["cart/updated", "orders/create"]
 scopes = "write_products,read_products,write_orders,read_orders"
 
 [auth]
-redirect_urls = ["https://jd-internet-enquiry-notes.trycloudflare.com/auth/callback", "https://jd-internet-enquiry-notes.trycloudflare.com/auth/shopify/callback", "https://jd-internet-enquiry-notes.trycloudflare.com/api/auth/callback"]
+redirect_urls = ["https://path-ko-foundations-mlb.trycloudflare.com/auth/callback", "https://path-ko-foundations-mlb.trycloudflare.com/auth/shopify/callback", "https://path-ko-foundations-mlb.trycloudflare.com/api/auth/callback"]
 
 [pos]
 embedded = false

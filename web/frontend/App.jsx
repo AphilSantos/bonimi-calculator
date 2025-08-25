@@ -2,6 +2,7 @@ import { BrowserRouter } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Routes from "./Routes";
 import AppNavigation from "./components/Navigation";
+import DevelopmentMode from "./components/DevelopmentMode";
 
 import { QueryProvider, PolarisProvider, AppBridgeProvider } from "./components";
 
@@ -13,11 +14,26 @@ export default function App() {
   });
   const { t } = useTranslation();
 
+  // Check if we're in development mode
+  const isDevelopment = import.meta.env.DEV;
+  
+  // Check if we're in a Shopify iframe context
+  const isInShopifyFrame = window.self !== window.top || 
+                          window.location.hostname.includes('shopify.com') ||
+                          window.location.hostname.includes('trycloudflare.com') ||
+                          window.location.hostname.includes('ngrok.io');
+
+  // Show development mode warning if not in Shopify context
+  if (isDevelopment && !isInShopifyFrame) {
+    console.log('Running in development mode outside Shopify context');
+  }
+
   return (
     <AppBridgeProvider>
       <PolarisProvider>
         <BrowserRouter>
           <QueryProvider>
+            <DevelopmentMode />
             <AppNavigation />
             <Routes pages={pages} />
           </QueryProvider>

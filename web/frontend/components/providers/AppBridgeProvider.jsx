@@ -25,8 +25,14 @@ export function AppBridgeProvider({ children }) {
       const shop = urlParams.get('shop');
       const host = urlParams.get('host');
 
+      // Check if we're in a Shopify iframe context
+      const isInShopifyFrame = window.self !== window.top || 
+                              window.location.hostname.includes('shopify.com') ||
+                              window.location.hostname.includes('trycloudflare.com') ||
+                              window.location.hostname.includes('ngrok.io');
+
       // For local development, use fallback values if Shopify context is not available
-      if (apiKey && apiKey !== '%VITE_SHOPIFY_API_KEY%' && (host || shop)) {
+      if (apiKey && apiKey !== '%VITE_SHOPIFY_API_KEY%' && (host || shop) && isInShopifyFrame) {
         // Create the app bridge instance
         const appBridgeApp = createApp({
           apiKey: apiKey,
@@ -35,6 +41,7 @@ export function AppBridgeProvider({ children }) {
         });
         
         setApp(appBridgeApp);
+        console.log('App Bridge initialized successfully');
       } else {
         // Create a mock app for local development
         console.log('Running in local development mode - using mock App Bridge');
@@ -45,6 +52,18 @@ export function AppBridgeProvider({ children }) {
           getState: () => ({}),
           subscribe: () => () => {},
           // Add other methods as needed
+          toast: {
+            show: (content, options = {}) => {
+              console.log('Mock toast:', content, options);
+              // You could implement a simple toast notification here
+            }
+          },
+          // Mock authenticatedFetch
+          authenticatedFetch: async (url, options = {}) => {
+            console.log('Mock authenticatedFetch:', url, options);
+            // For local development, just use regular fetch
+            return fetch(url, options);
+          }
         };
         setApp(mockApp);
       }
@@ -56,6 +75,15 @@ export function AppBridgeProvider({ children }) {
         dispatch: () => {},
         getState: () => ({}),
         subscribe: () => () => {},
+        toast: {
+          show: (content, options = {}) => {
+            console.log('Mock toast:', content, options);
+          }
+        },
+        authenticatedFetch: async (url, options = {}) => {
+          console.log('Mock authenticatedFetch:', url, options);
+          return fetch(url, options);
+        }
       };
       setApp(mockApp);
     } finally {

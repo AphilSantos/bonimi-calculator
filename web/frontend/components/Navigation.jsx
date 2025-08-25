@@ -14,6 +14,7 @@ export default function AppNavigation() {
     { label: 'Calculators', icon: AnalyticsMinor, url: '/calculators', active: window.location.pathname === '/calculators' },
     { label: 'Test Calculator', icon: AppsMinor, url: '/calculatorDemo', active: window.location.pathname === '/calculatorDemo' },
     { label: 'Create Calculator', icon: AppsMinor, url: '/calculatorBuilder', active: window.location.pathname === '/calculatorBuilder' },
+    { label: 'Customer Calculator', icon: AnalyticsMinor, url: '/customerCalculator', active: window.location.pathname === '/customerCalculator' },
   ];
 
   const handleNavigation = (url) => {

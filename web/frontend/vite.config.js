@@ -58,5 +58,9 @@ export default defineConfig({
       "^/(\\?.*)?$": proxyOptions,
       "^/api(/|(\\?.*)?$)": proxyOptions,
     },
+    headers: { // New headers for CSP
+      "Content-Security-Policy": "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.shopify.com; style-src 'self' 'unsafe-inline' https://cdn.shopify.com; img-src 'self' data: blob: https:; connect-src 'self' https: wss: ws:; frame-ancestors 'self' https://*.shopify.com https://*.trycloudflare.com https://*.ngrok.io; frame-src 'self' https://*.shopify.com;",
+      "X-Frame-Options": "ALLOWALL",
+    },
   },
 });

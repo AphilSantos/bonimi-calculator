@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Page, 
   Layout, 
@@ -35,6 +35,7 @@ export default function CalculatorBuilder() {
   const [canvasElements, setCanvasElements] = useState([]);
   const [selectedElement, setSelectedElement] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
+  const canvasRef = useRef(null);
 
   // Debug logging
   React.useEffect(() => {
@@ -179,20 +180,88 @@ export default function CalculatorBuilder() {
     e.dataTransfer.setData('element', JSON.stringify(element));
   };
 
+  // Drag preview state
+  const [dragPreview, setDragPreview] = useState(null);
+
+  // Handle drag over with preview
   const handleDragOver = (e) => {
     e.preventDefault();
+    
+    // Show preview for moving elements
+    const moveData = e.dataTransfer.getData('moveElement');
+    if (moveData) {
+      const canvasRect = e.currentTarget.getBoundingClientRect();
+      const dropX = e.clientX - canvasRect.left;
+      const dropY = e.clientY - canvasRect.top;
+      
+      const nearestPosition = findNearestPosition(dropX, dropY);
+      setDragPreview({
+        x: nearestPosition.x,
+        y: nearestPosition.y,
+        type: 'move'
+      });
+    }
+  };
+
+  // Clear preview when drag ends
+  const handleDragEnd = () => {
+    setDragPreview(null);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     const elementData = JSON.parse(e.dataTransfer.getData('element'));
+    
+    // Find the next available position using grid snapping
+    const nextPosition = findNextAvailablePosition();
+    
     const newElement = {
       ...elementData,
       id: `${elementData.type}-${Date.now()}`,
-      position: { x: e.clientX - 200, y: e.clientY - 100 },
+      position: nextPosition,
       config: { ...elementData.defaultConfig }
     };
+    
     setCanvasElements([...canvasElements, newElement]);
+    setSelectedElement(newElement);
+  };
+
+  // Handle moving existing elements on the canvas
+  const handleElementDragStart = (e, element) => {
+    e.stopPropagation();
+    e.dataTransfer.setData('moveElement', JSON.stringify(element));
+    setSelectedElement(element);
+  };
+
+  const handleElementDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleElementDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const moveData = e.dataTransfer.getData('moveElement');
+    if (moveData) {
+      const elementToMove = JSON.parse(moveData);
+      const canvasRect = e.currentTarget.getBoundingClientRect();
+      const dropX = e.clientX - canvasRect.left;
+      const dropY = e.clientY - canvasRect.top;
+      
+      // Find the nearest available grid position
+      const nearestPosition = findNearestPosition(dropX, dropY);
+      
+      // Use the reordering system to handle the move
+      handleComponentReorder(elementToMove, nearestPosition);
+    }
+  };
+
+  // Handle removing elements from canvas
+  const handleRemoveElement = (elementId) => {
+    setCanvasElements(prev => prev.filter(el => el.id !== elementId));
+    if (selectedElement?.id === elementId) {
+      setSelectedElement(null);
+    }
   };
 
   const handleElementSelect = (element) => {
@@ -208,17 +277,47 @@ export default function CalculatorBuilder() {
   };
 
   const handleSaveCalculator = () => {
+    if (!calculatorName.trim()) {
+      alert('Please enter a calculator name');
+      return;
+    }
+
+    if (canvasElements.length === 0) {
+      alert('Please add at least one element to your calculator');
+      return;
+    }
+
     const calculatorData = {
+      id: `calc_${Date.now()}`,
       name: calculatorName,
+      description: `Custom calculator for ${calculatorName}`,
       formula,
       formulaLabel,
       minFormulaValue: parseFloat(minFormulaValue) || 0,
       elements: canvasElements,
-      status: 'draft'
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
-    console.log('Saving calculator:', calculatorData);
-    // Here you would save to your backend
-    alert('Calculator saved successfully!');
+
+    // Save to localStorage for now (in production, this would go to your backend)
+    try {
+      const existingCalculators = JSON.parse(localStorage.getItem('bonimi_calculators') || '[]');
+      const updatedCalculators = [...existingCalculators, calculatorData];
+      localStorage.setItem('bonimi_calculators', JSON.stringify(updatedCalculators));
+      
+      console.log('Calculator saved successfully:', calculatorData);
+      alert(`Calculator "${calculatorName}" saved successfully!`);
+      
+      // Reset form
+      setCalculatorName(`New Calculator_${new Date().toISOString().split('T')[0]}_${Math.floor(Math.random() * 100)}`);
+      setFormula('');
+      setCanvasElements([]);
+      setSelectedElement(null);
+    } catch (error) {
+      console.error('Error saving calculator:', error);
+      alert('Error saving calculator. Please try again.');
+    }
   };
 
   const renderCanvasElement = (element) => {
@@ -226,81 +325,613 @@ export default function CalculatorBuilder() {
       position: 'absolute',
       left: element.position.x,
       top: element.position.y,
-      padding: '8px',
-      border: selectedElement?.id === element.id ? '2px solid #007cba' : '1px solid #ddd',
-      borderRadius: '4px',
+      padding: '20px',
+      border: selectedElement?.id === element.id ? '3px solid #007cba' : '2px solid #e1e3e5',
+      borderRadius: '8px',
       backgroundColor: 'white',
-      cursor: 'pointer',
-      minWidth: '120px',
-      minHeight: '40px'
+      cursor: 'move', // Changed from 'pointer' to 'move' to indicate draggable
+      width: '400px', // Fixed width for consistent column layout
+      minHeight: '80px',
+      boxShadow: selectedElement?.id === element.id 
+        ? '0 4px 12px rgba(0, 124, 186, 0.3)' 
+        : '0 2px 8px rgba(0, 0, 0, 0.1)',
+      transition: 'all 0.2s ease',
+      zIndex: selectedElement?.id === element.id ? 10 : 1
     };
 
     try {
       switch (element.type) {
         case 'text-input':
           return (
-            <div key={element.id} style={baseStyle} onClick={() => handleElementSelect(element)}>
-              <Text variant="bodyMd" fontWeight="semibold">{element.config?.label || 'Text Input'}</Text>
+            <div 
+              key={element.id} 
+              style={baseStyle} 
+              onClick={() => handleElementSelect(element)}
+              draggable
+              onDragStart={(e) => handleElementDragStart(e, element)}
+              onDragOver={handleElementDragOver}
+              onDrop={handleElementDrop}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text variant="bodyMd" fontWeight="semibold">
+                  {element.config?.label || 'Text Input'}
+                </Text>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    ':hover': { opacity: 1 }
+                  }}>
+                    ✏️
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveElement(element.id);
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      color: '#d82c0d',
+                      opacity: 0.6,
+                      ':hover': { opacity: 1 }
+                    }}
+                    title="Remove element"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
               <input
                 type={element.config?.type || 'text'}
                 placeholder={element.config?.placeholder || 'Enter text...'}
-                style={{ width: '100%', marginTop: '4px' }}
+                style={{ 
+                  width: '100%', 
+                  padding: '12px', 
+                  border: '1px solid #e1e3e5', 
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  boxSizing: 'border-box'
+                }}
                 disabled
               />
             </div>
           );
         
-                 case 'select':
-           return (
-             <div key={element.id} style={baseStyle} onClick={() => handleElementSelect(element)}>
-               <Text variant="bodyMd" fontWeight="semibold">{element.config?.label || 'Select'}</Text>
-               <select style={{ width: '100%', marginTop: '4px' }} disabled>
-                 {(element.config?.options || ['Option 1', 'Option 2']).map((opt, idx) => (
-                   <option key={idx} value={opt}>{opt}</option>
-                 ))}
-               </select>
-             </div>
-           );
-         
-         case 'number-input':
-           return (
-             <div key={element.id} style={baseStyle} onClick={() => handleElementSelect(element)}>
-               <Text variant="bodyMd" fontWeight="semibold">{element.config?.label || 'Number Input'}</Text>
-               <input
-                 type="number"
-                 placeholder={element.config?.placeholder || 'Enter number...'}
-                 min={element.config?.min || 0}
-                 max={element.config?.max || 1000}
-                 step={element.config?.step || 1}
-                 style={{ width: '100%', marginTop: '4px' }}
-                 disabled
-               />
-             </div>
-           );
+        case 'select':
+          return (
+            <div 
+              key={element.id} 
+              style={baseStyle} 
+              onClick={() => handleElementSelect(element)}
+              draggable
+              onDragStart={(e) => handleElementDragStart(e, element)}
+              onDragOver={handleElementDragOver}
+              onDrop={handleElementDrop}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text variant="bodyMd" fontWeight="semibold">
+                  {element.config?.label || 'Dropdown'}
+                </Text>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    ':hover': { opacity: 1 }
+                  }}>
+                    ✏️
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveElement(element.id);
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      color: '#d82c0d',
+                      opacity: 0.6,
+                      ':hover': { opacity: 1 }
+                    }}
+                    title="Remove element"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              <select style={{ 
+                width: '100%', 
+                padding: '12px', 
+                border: '1px solid #e1e3e5', 
+                borderRadius: '6px',
+                fontSize: '14px',
+                boxSizing: 'border-box'
+              }} disabled>
+                {(element.config?.options || ['Option 1', 'Option 2']).map((opt, idx) => (
+                  <option key={idx} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+          );
         
+        case 'number-input':
+          return (
+            <div 
+              key={element.id} 
+              style={baseStyle} 
+              onClick={() => handleElementSelect(element)}
+              draggable
+              onDragStart={(e) => handleElementDragStart(e, element)}
+              onDragOver={handleElementDragOver}
+              onDrop={handleElementDrop}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text variant="bodyMd" fontWeight="semibold">
+                  {element.config?.label || 'Number Input'}
+                </Text>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    ':hover': { opacity: 1 }
+                  }}>
+                    ✏️
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveElement(element.id);
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      color: '#d82c0d',
+                      opacity: 0.6,
+                      ':hover': { opacity: 1 }
+                    }}
+                    title="Remove element"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              <input
+                type="number"
+                placeholder={element.config?.placeholder || 'Enter number...'}
+                min={element.config?.min || 0}
+                max={element.config?.max || 1000}
+                step={element.config?.step || 1}
+                style={{ 
+                  width: '100%', 
+                  padding: '12px', 
+                  border: '1px solid #e1e3e5', 
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  boxSizing: 'border-box'
+                }}
+                disabled
+              />
+            </div>
+          );
+        
+        case 'checkbox':
+          return (
+            <div 
+              key={element.id} 
+              style={baseStyle} 
+              onClick={() => handleElementSelect(element)}
+              draggable
+              onDragStart={(e) => handleElementDragStart(e, element)}
+              onDragOver={handleElementDragOver}
+              onDrop={handleElementDrop}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text variant="bodyMd" fontWeight="semibold">
+                  {element.config?.label || 'Checkbox'}
+                </Text>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    ':hover': { opacity: 1 }
+                  }}>
+                    ✏️
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveElement(element.id);
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      color: '#d82c0d',
+                      opacity: 0.6,
+                      ':hover': { opacity: 1 }
+                    }}
+                    title="Remove element"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                <input 
+                  type="checkbox" 
+                  checked={element.config?.checked || false} 
+                  disabled 
+                />
+                {element.config?.label || 'Checkbox option'}
+              </label>
+            </div>
+          );
+
         case 'text-block':
           return (
-            <div key={element.id} style={baseStyle} onClick={() => handleElementSelect(element)}>
-              <Text variant="bodyMd" style={{ fontSize: element.config?.fontSize || '16px', color: element.config?.color || '#000000' }}>
+            <div 
+              key={element.id} 
+              style={baseStyle} 
+              onClick={() => handleElementSelect(element)}
+              draggable
+              onDragStart={(e) => handleElementDragStart(e, element)}
+              onDragOver={handleElementDragOver}
+              onDrop={handleElementDrop}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text variant="bodyMd" fontWeight="semibold">
+                  Text Block
+                </Text>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    ':hover': { opacity: 1 }
+                  }}>
+                    ✏️
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveElement(element.id);
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      color: '#d82c0d',
+                      opacity: 0.6,
+                      ':hover': { opacity: 1 }
+                    }}
+                    title="Remove element"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              <Text variant="bodyMd" style={{ 
+                fontSize: element.config?.fontSize || '16px', 
+                color: element.config?.color || '#000000',
+                lineHeight: '1.4'
+              }}>
                 {element.config?.text || 'Enter your text here'}
               </Text>
             </div>
           );
         
+        case 'radio':
+          return (
+            <div 
+              key={element.id} 
+              style={baseStyle} 
+              onClick={() => handleElementSelect(element)}
+              draggable
+              onDragStart={(e) => handleElementDragStart(e, element)}
+              onDragOver={handleElementDragOver}
+              onDrop={handleElementDrop}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text variant="bodyMd" fontWeight="semibold">
+                  {element.config?.label || 'Radio Group'}
+                </Text>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    ':hover': { opacity: 1 }
+                  }}>
+                    ✏️
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveElement(element.id);
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      color: '#d82c0d',
+                      opacity: 0.6,
+                      ':hover': { opacity: 1 }
+                    }}
+                    title="Remove element"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {(element.config?.options || ['Option 1', 'Option 2', 'Option 3']).map((opt, idx) => (
+                  <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                    <input type="radio" name={element.id} value={opt} disabled />
+                    {opt}
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        
+        case 'file-upload':
+          return (
+            <div 
+              key={element.id} 
+              style={baseStyle} 
+              onClick={() => handleElementSelect(element)}
+              draggable
+              onDragStart={(e) => handleElementDragStart(e, element)}
+              onDragOver={handleElementDragOver}
+              onDrop={handleElementDrop}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text variant="bodyMd" fontWeight="semibold">
+                  {element.config?.label || 'Upload File'}
+                </Text>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    ':hover': { opacity: 1 }
+                  }}>
+                    ✏️
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveElement(element.id);
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      color: '#d82c0d',
+                      opacity: 0.6,
+                      ':hover': { opacity: 1 }
+                    }}
+                    title="Remove element"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              <div style={{ 
+                border: '2px dashed #e1e3e5', 
+                borderRadius: '6px', 
+                padding: '16px', 
+                textAlign: 'center',
+                backgroundColor: '#f9fafb'
+              }}>
+                <Text variant="bodySm" color="subdued">Click to upload file</Text>
+              </div>
+            </div>
+          );
+        
+        case 'photo-editor':
+          return (
+            <div 
+              key={element.id} 
+              style={baseStyle} 
+              onClick={() => handleElementSelect(element)}
+              draggable
+              onDragStart={(e) => handleElementDragStart(e, element)}
+              onDragOver={handleElementDragOver}
+              onDrop={handleElementDrop}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text variant="bodyMd" fontWeight="semibold">
+                  {element.config?.label || 'Photo Editor'}
+                </Text>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    ':hover': { opacity: 1 }
+                  }}>
+                    ✏️
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveElement(element.id);
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      color: '#d82c0d',
+                      opacity: 0.6,
+                      ':hover': { opacity: 1 }
+                    }}
+                    title="Remove element"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              <div style={{ 
+                border: '2px dashed #e1e3e5', 
+                borderRadius: '6px', 
+                padding: '16px', 
+                textAlign: 'center',
+                backgroundColor: '#f9fafb'
+              }}>
+                <Text variant="bodySm" color="subdued">Click to upload photo</Text>
+              </div>
+            </div>
+          );
+        
         case 'calculation-display':
           return (
-            <div key={element.id} style={baseStyle} onClick={() => handleElementSelect(element)}>
-              <Text variant="bodyMd" fontWeight="semibold">{element.config?.label || 'Total Price'}</Text>
-              <Text variant="headingMd" style={{ fontSize: element.config?.fontSize || '18px' }}>
-                £0.00
-              </Text>
+            <div 
+              key={element.id} 
+              style={baseStyle} 
+              onClick={() => handleElementSelect(element)}
+              draggable
+              onDragStart={(e) => handleElementDragStart(e, element)}
+              onDragOver={handleElementDragOver}
+              onDrop={handleElementDrop}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text variant="bodyMd" fontWeight="semibold">
+                  {element.config?.label || 'Calculation Display'}
+                </Text>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    ':hover': { opacity: 1 }
+                  }}>
+                    ✏️
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveElement(element.id);
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      color: '#d82c0d',
+                      opacity: 0.6,
+                      ':hover': { opacity: 1 }
+                    }}
+                    title="Remove element"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+              <input
+                type="text"
+                placeholder="Calculated result will appear here"
+                style={{ 
+                  width: '100%', 
+                  padding: '12px', 
+                  border: '1px solid #e1e3e5', 
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  boxSizing: 'border-box',
+                  backgroundColor: '#f9fafb'
+                }}
+                disabled
+              />
             </div>
           );
         
         default:
           return (
-            <div key={element.id} style={baseStyle} onClick={() => handleElementSelect(element)}>
-              <Text variant="bodyMd">{element.name || 'Element'}</Text>
+            <div 
+              key={element.id} 
+              style={baseStyle} 
+              onClick={() => handleElementSelect(element)}
+              draggable
+              onDragStart={(e) => handleElementDragStart(e, element)}
+              onDragOver={handleElementDragOver}
+              onDrop={handleElementDrop}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <Text variant="bodyMd" fontWeight="semibold">{element.name || 'Element'}</Text>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ 
+                    width: '20px', 
+                    height: '20px', 
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    ':hover': { opacity: 1 }
+                  }}>
+                    ✏️
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveElement(element.id);
+                    }}
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: 'none',
+                      backgroundColor: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      color: '#d82c0d',
+                      opacity: 0.6,
+                      ':hover': { opacity: 1 }
+                    }}
+                    title="Remove element"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
             </div>
           );
       }
@@ -308,7 +939,7 @@ export default function CalculatorBuilder() {
       console.error('Error rendering element:', error, element);
       return (
         <div key={element.id} style={baseStyle} onClick={() => handleElementSelect(element)}>
-          <Text variant="bodyMd" color="critical">Error rendering element</Text>
+          <Text variant="bodyMd" color="critical">Error rendering {element.name}</Text>
         </div>
       );
     }
@@ -484,10 +1115,151 @@ export default function CalculatorBuilder() {
     );
   };
 
+  // Grid snapping configuration
+  const gridSize = 40; // Grid cell size in pixels
+  const componentSpacing = 20; // Vertical spacing between components
+  const componentWidth = 400; // Standard component width
+  const componentHeight = 80; // Standard component height
+  const canvasWidth = 800; // Canvas width for horizontal centering
+
+  // Calculate available grid positions
+  const getAvailablePositions = () => {
+    const positions = [];
+    const maxComponents = 10; // Maximum number of components that can fit
+    
+    for (let i = 0; i < maxComponents; i++) {
+      const y = i * (componentHeight + componentSpacing);
+      const x = Math.max(40, (canvasWidth - componentWidth) / 2); // Center horizontally
+      positions.push({ x, y, index: i });
+    }
+    
+    return positions;
+  };
+
+  // Find the nearest available position
+  const findNearestPosition = (dropX, dropY) => {
+    const availablePositions = getAvailablePositions();
+    let nearestPosition = availablePositions[0];
+    let minDistance = Infinity;
+    
+    availablePositions.forEach(position => {
+      const distance = Math.sqrt(
+        Math.pow(dropX - position.x, 2) + Math.pow(dropY - position.y, 2)
+      );
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestPosition = position;
+      }
+    });
+    
+    return nearestPosition;
+  };
+
+  // Check if a position is occupied
+  const isPositionOccupied = (x, y) => {
+    return canvasElements.some(element => 
+      Math.abs(element.position.x - x) < 10 && Math.abs(element.position.y - y) < 10
+    );
+  };
+
+  // Find the next available position
+  const findNextAvailablePosition = () => {
+    const availablePositions = getAvailablePositions();
+    
+    for (let position of availablePositions) {
+      if (!isPositionOccupied(position.x, position.y)) {
+        return position;
+      }
+    }
+    
+    // If all positions are occupied, find the last position and add spacing
+    const lastElement = canvasElements[canvasElements.length - 1];
+    if (lastElement) {
+      return {
+        x: lastElement.position.x,
+        y: lastElement.position.y + componentHeight + componentSpacing,
+        index: canvasElements.length
+      };
+    }
+    
+    return availablePositions[0];
+  };
+
+  // Handle component reordering when moved
+  const handleComponentReorder = (movedElement, newPosition) => {
+    // Find the target index based on the new position
+    const targetIndex = Math.round(newPosition.y / (componentHeight + componentSpacing));
+    
+    // Create a new array with the moved element
+    const newElements = canvasElements.filter(el => el.id !== movedElement.id);
+    
+    // Insert the moved element at the target position
+    newElements.splice(targetIndex, 0, {
+      ...movedElement,
+      position: newPosition
+    });
+    
+    // Reorder all elements to maintain proper spacing
+    const reorderedElements = newElements.map((element, index) => {
+      const position = getAvailablePositions()[index] || getAvailablePositions()[0];
+      return {
+        ...element,
+        position: { x: position.x, y: position.y }
+      };
+    });
+    
+    setCanvasElements(reorderedElements);
+  };
+
+  // Auto-reorder elements when they change
+  useEffect(() => {
+    if (canvasElements.length > 0) {
+      // Only reorder if elements are not properly positioned
+      const needsReordering = canvasElements.some((element, index) => {
+        const expectedPosition = getAvailablePositions()[index];
+        return expectedPosition && (
+          Math.abs(element.position.x - expectedPosition.x) > 5 ||
+          Math.abs(element.position.y - expectedPosition.y) > 5
+        );
+      });
+      
+      if (needsReordering) {
+        const reorderedElements = canvasElements.map((element, index) => {
+          const position = getAvailablePositions()[index] || getAvailablePositions()[0];
+          return {
+            ...element,
+            position: { x: position.x, y: position.y }
+          };
+        });
+        setCanvasElements(reorderedElements);
+      }
+    }
+  }, [canvasElements.length]);
+
   return (
+    <>
+      <style>
+        {`
+          @keyframes pulse {
+            0% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.02); }
+            100% { opacity: 0.6; transform: scale(1); }
+          }
+        `}
+      </style>
+      
+      <div style={{ 
+        height: '100vh', 
+        display: 'flex', 
+        flexDirection: 'column',
+        overflow: 'hidden'
+      }}>
+      
     <Page
       title="Calculator Builder"
       subtitle="Create custom pricing calculators with drag-and-drop interface"
+      fullWidth
       backAction={{
         content: 'Back',
         icon: ArrowLeftMinor,
@@ -530,296 +1302,423 @@ export default function CalculatorBuilder() {
 
         {/* Main Builder Interface */}
         <Layout.Section>
-          <div style={{ display: 'flex', gap: '16px', minHeight: '600px' }}>
+          <div style={{ display: 'flex', gap: '32px', minHeight: '900px', width: '100%' }}>
             {/* Left Sidebar - Elements */}
-            <div style={{ width: '280px', flexShrink: 0 }}>
+            <div style={{ width: '400px', flexShrink: 0 }}>
               <LegacyCard>
-                                                  <Tabs
-                   tabs={[
-                     {
-                       id: 0,
-                       content: 'Elements',
-                       icon: PlusMinor
-                     },
-                     {
-                       id: 1,
-                       content: 'Properties',
-                       icon: SettingsMinor
-                     }
-                   ]}
-                   selected={leftActiveTab}
-                   onSelect={(selected) => {
-                     console.log('Tab selected:', selected, 'type:', typeof selected);
-                     setLeftActiveTab(selected);
-                   }}
-                 >
-                   {console.log('Tab check - leftActiveTab:', leftActiveTab, '=== 0:', leftActiveTab === 0)}
-                   {leftActiveTab === 0 && (
-                    <div style={{ padding: '16px' }}>
-                      <VerticalStack gap="3">
-                        <Text variant="headingMd" fontWeight="semibold">
-                          Available Elements ({availableElements.length})
-                        </Text>
-                        <Text variant="bodyMd" color="subdued">
-                          Drag elements onto the canvas to build your calculator
-                        </Text>
-                      </VerticalStack>
+                <Tabs
+                  tabs={[
+                    {
+                      id: 0,
+                      content: 'Elements',
+                      icon: PlusMinor
+                    },
+                    {
+                      id: 1,
+                      content: 'Properties',
+                      icon: SettingsMinor
+                    }
+                  ]}
+                  selected={leftActiveTab}
+                  onSelect={(selected) => {
+                    console.log('Tab selected:', selected, 'type:', typeof selected);
+                    setLeftActiveTab(selected);
+                  }}
+                >
+                  {console.log('Tab check - leftActiveTab:', leftActiveTab, '=== 0:', leftActiveTab === 0)}
+                  {leftActiveTab === 0 && (
+                   <div style={{ padding: '32px' }}>
+                     <VerticalStack gap="6">
+                       <Text variant="headingLg" fontWeight="semibold">
+                         Available Elements ({availableElements.length})
+                       </Text>
+                       <Text variant="bodyLg" color="subdued">
+                         Drag elements onto the canvas to build your calculator
+                       </Text>
+                     </VerticalStack>
                       
-                                             <div style={{ marginTop: '16px' }}>
-                         {console.log('Rendering elements:', availableElements)}
-                         
-                         {/* Test element to verify rendering works */}
-                         <div style={{
-                           padding: '12px',
-                           border: '2px solid red',
-                           borderRadius: '6px',
-                           marginBottom: '8px',
-                           backgroundColor: 'yellow',
-                           textAlign: 'center'
-                         }}>
-                           <Text variant="bodyMd" fontWeight="semibold">TEST ELEMENT - This should be visible!</Text>
-                         </div>
-                         
-                         {availableElements && availableElements.length > 0 ? (
-                           availableElements.map((element, index) => {
-                             console.log(`Rendering element ${index}:`, element);
-                             return (
-                               <div
-                                 key={element.id}
-                                 draggable
-                                 onDragStart={(e) => handleDragStart(e, element)}
-                                 style={{
-                                   padding: '12px',
-                                   border: '1px solid #e1e3e5',
-                                   borderRadius: '6px',
-                                   marginBottom: '8px',
-                                   cursor: 'grab',
-                                   backgroundColor: 'white',
-                                   display: 'flex',
-                                   alignItems: 'center',
-                                   gap: '12px'
-                                 }}
-                               >
-                                 <div style={{ 
-                                   width: '24px', 
-                                   height: '24px', 
-                                   backgroundColor: '#f6f6f7',
-                                   borderRadius: '4px',
-                                   display: 'flex',
-                                   alignItems: 'center',
-                                   justifyContent: 'center'
-                                 }}>
-                                   <Icon source={CirclePlusMinor} />
-                                 </div>
-                                 <div style={{ flex: 1 }}>
-                                   <Text variant="bodyMd" fontWeight="semibold">
-                                     {element.name}
-                                   </Text>
-                                   <Text variant="bodySm" color="subdued">
-                                     {element.description}
-                                   </Text>
-                                 </div>
-                               </div>
-                             );
-                           })
-                         ) : (
-                           <div style={{ 
-                             padding: '16px', 
-                             textAlign: 'center', 
-                             color: '#6d7175',
-                             backgroundColor: '#f6f6f7',
-                             borderRadius: '6px'
-                           }}>
-                             <Text variant="bodyMd">No elements available</Text>
-                             <Text variant="bodySm" color="subdued">
-                               Elements array: {JSON.stringify(availableElements)}
-                             </Text>
-                           </div>
-                         )}
-                       </div>
-                    </div>
-                  )}
+                      <div style={{ 
+                        marginTop: '32px',
+                        maxHeight: '600px', // Fixed height to prevent panel from growing too tall
+                        overflowY: 'auto', // Make it scrollable
+                        paddingRight: '8px' // Add some padding for the scrollbar
+                      }}>
+                        {console.log('Rendering elements:', availableElements)}
+                        
+                        {availableElements && availableElements.length > 0 ? (
+                          availableElements.map((element, index) => {
+                            console.log(`Rendering element ${index}:`, element);
+                            return (
+                              <div
+                                key={element.id}
+                                draggable
+                                onDragStart={(e) => handleDragStart(e, element)}
+                                style={{
+                                  padding: '24px',
+                                  border: '2px solid #e1e3e5',
+                                  borderRadius: '12px',
+                                  marginBottom: '20px',
+                                  cursor: 'grab',
+                                  backgroundColor: 'white',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '20px',
+                                  transition: 'all 0.2s ease',
+                                  ':hover': {
+                                    borderColor: '#007cba',
+                                    boxShadow: '0 4px 16px rgba(0, 124, 186, 0.2)'
+                                  }
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.borderColor = '#007cba';
+                                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 124, 186, 0.2)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.borderColor = '#e1e3e5';
+                                  e.currentTarget.style.boxShadow = 'none';
+                                }}
+                              >
+                                <div style={{ 
+                                  width: '48px', 
+                                  height: '48px', 
+                                  backgroundColor: '#f6f6f7',
+                                  borderRadius: '10px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}>
+                                  <Icon source={CirclePlusMinor} />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                  <Text variant="bodyLg" fontWeight="semibold">
+                                    {element.name}
+                                  </Text>
+                                  <Text variant="bodyMd" color="subdued" style={{ marginTop: '4px' }}>
+                                    {element.description}
+                                  </Text>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div style={{ 
+                            padding: '32px', 
+                            textAlign: 'center', 
+                            color: '#6d7175',
+                            backgroundColor: '#f6f6f7',
+                            borderRadius: '12px'
+                          }}>
+                            <Text variant="bodyLg">No elements available</Text>
+                            <Text variant="bodyMd" color="subdued">
+                              Elements array: {JSON.stringify(availableElements)}
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+                   </div>
+                 )}
                   
-                                                        {leftActiveTab === 1 && renderPropertiesPanel()}
-                 </Tabs>
+                 {leftActiveTab === 1 && renderPropertiesPanel()}
+                </Tabs>
               </LegacyCard>
             </div>
 
             {/* Center Canvas */}
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <LegacyCard>
+                {/* Grid Legend */}
+                <div style={{
+                  marginBottom: '16px',
+                  padding: '12px 16px',
+                  backgroundColor: '#f6f6f7',
+                  borderRadius: '8px',
+                  border: '1px solid #e1e3e5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                  flexWrap: 'wrap'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{
+                      width: '16px',
+                      height: '16px',
+                      border: '2px dashed rgba(0, 124, 186, 0.3)',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(0, 124, 186, 0.05)'
+                    }}></div>
+                    <span style={{ fontSize: '14px', color: '#6d7175' }}>Available Position</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{
+                      width: '16px',
+                      height: '16px',
+                      border: '2px dashed rgba(0, 124, 186, 0.6)',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(0, 124, 186, 0.1)'
+                    }}></div>
+                    <span style={{ fontSize: '14px', color: '#6d7175' }}>Occupied Position</span>
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#6d7175', fontStyle: 'italic' }}>
+                    Components automatically snap to grid positions for organized layout
+                  </div>
+                </div>
+                
                 <div
+                  ref={canvasRef}
                   style={{
+                    minHeight: '900px',
+                    backgroundColor: '#fafafa',
+                    border: '4px dashed #e1e3e5',
+                    borderRadius: '16px',
                     position: 'relative',
-                    minHeight: '600px',
-                    backgroundColor: '#f6f6f7',
+                    overflow: 'hidden',
                     backgroundImage: `
-                      linear-gradient(45deg, #f6f6f7 25%, transparent 25%),
-                      linear-gradient(-45deg, #f6f6f7 25%, transparent 25%),
-                      linear-gradient(45deg, transparent 75%, #f6f6f7 75%),
-                      linear-gradient(-45deg, transparent 75%, #f6f6f7 75%)
+                      linear-gradient(rgba(0, 124, 186, 0.1) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(0, 124, 186, 0.1) 1px, transparent 1px)
                     `,
-                    backgroundSize: '20px 20px',
-                    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                    border: '2px dashed #c9cccf',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
+                    backgroundSize: `${gridSize}px ${gridSize}px`,
+                    cursor: 'default'
                   }}
                   onDragOver={handleDragOver}
-                  onDrop={handleDrop}
+                  onDragLeave={handleDragEnd}
+                  onDrop={(e) => {
+                    const moveData = e.dataTransfer.getData('moveElement');
+                    if (moveData) {
+                      handleElementDrop(e);
+                    } else {
+                      handleDrop(e);
+                    }
+                    handleDragEnd();
+                  }}
                 >
-                  {canvasElements.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: '#6d7175' }}>
-                      <Icon source={CirclePlusMinor} style={{ fontSize: '48px', marginBottom: '16px' }} />
-                      <Text variant="headingMd">Drag elements here</Text>
-                      <Text variant="bodyMd" color="subdued">
-                        Start building your calculator by dragging elements from the left sidebar
-                      </Text>
+                  {/* Drag Preview */}
+                  {dragPreview && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: dragPreview.x,
+                        top: dragPreview.y,
+                        width: componentWidth,
+                        height: componentHeight,
+                        border: '3px solid #007cba',
+                        borderRadius: '8px',
+                        backgroundColor: 'rgba(0, 124, 186, 0.1)',
+                        zIndex: 10,
+                        pointerEvents: 'none',
+                        animation: 'pulse 1s infinite'
+                      }}
+                    >
+                      <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        color: '#007cba',
+                        fontSize: '14px',
+                        fontWeight: 'bold'
+                      }}>
+                        Drop Here
+                      </div>
                     </div>
-                  ) : (
-                    canvasElements.map(renderCanvasElement)
+                  )}
+                  
+                  {/* Grid Position Indicators */}
+                  {getAvailablePositions().map((position, index) => {
+                    const isOccupied = isPositionOccupied(position.x, position.y);
+                    return (
+                      <div
+                        key={`grid-${index}`}
+                        style={{
+                          position: 'absolute',
+                          left: position.x,
+                          top: position.y,
+                          width: componentWidth,
+                          height: componentHeight,
+                          border: `2px dashed ${isOccupied ? 'rgba(0, 124, 186, 0.6)' : 'rgba(0, 124, 186, 0.3)'}`,
+                          borderRadius: '8px',
+                          backgroundColor: isOccupied ? 'rgba(0, 124, 186, 0.1)' : 'rgba(0, 124, 186, 0.05)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: isOccupied ? 'rgba(0, 124, 186, 0.8)' : 'rgba(0, 124, 186, 0.5)',
+                          fontSize: '12px',
+                          fontWeight: 'bold',
+                          pointerEvents: 'none',
+                          zIndex: 1,
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        {isOccupied ? '●' : '○'}
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Canvas Elements */}
+                  <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '900px' }}>
+                    {canvasElements.map(renderCanvasElement)}
+                  </div>
+                  
+                  {/* Empty State */}
+                  {canvasElements.length === 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      textAlign: 'center',
+                      color: '#6d7175',
+                      zIndex: 2
+                    }}>
+                      <div style={{ fontSize: '48px', marginBottom: '16px' }}>📐</div>
+                      <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>
+                        Drag elements here to build your calculator
+                      </div>
+                      <div style={{ fontSize: '14px' }}>
+                        Components will snap to grid positions for organized layout
+                      </div>
+                    </div>
                   )}
                 </div>
               </LegacyCard>
             </div>
 
             {/* Right Sidebar - Configuration */}
-            <div style={{ width: '320px', flexShrink: 0 }}>
+            <div style={{ width: '450px', flexShrink: 0 }}>
               <LegacyCard>
-                                 <Tabs
-                   tabs={[
-                     {
-                       id: 0,
-                       content: 'Formula',
-                       icon: AnalyticsMinor
-                     },
-                     {
-                       id: 1,
-                       content: 'Products',
-                       icon: PackageMajor
-                     },
-                     {
-                       id: 2,
-                       content: 'Advanced',
-                       icon: SettingsMinor
-                     }
-                   ]}
-                   selected={rightActiveTab}
-                   onSelect={setRightActiveTab}
-                 >
-                   {rightActiveTab === 0 && (
-                    <div style={{ padding: '16px' }}>
-                      <VerticalStack gap="4">
-                        <div>
-                          <Text variant="headingMd" fontWeight="semibold">
-                            Formula Configuration
-                          </Text>
-                          <Text variant="bodyMd" color="subdued">
-                            Define the mathematical formula for calculating prices
-                          </Text>
-                        </div>
-                        
-                        <TextField
-                          label="Formula"
-                          value={formula}
-                          onChange={setFormula}
-                          placeholder="e.g., basePrice + (length * width * 0.15) + (materialMultiplier * length * width)"
-                          multiline={4}
-                          helpText="Use mathematical operators: +, -, *, /, () and variable names"
-                        />
-                        
-                        <div style={{ 
-                          padding: '12px', 
-                          backgroundColor: '#f6f6f7', 
-                          borderRadius: '4px',
-                          fontSize: '14px'
-                        }}>
-                          <Text variant="bodyMd" fontWeight="semibold">Formula Tips:</Text>
-                          <ul style={{ margin: '8px 0 0 20px', padding: 0 }}>
-                            <li>Press tab key to use suggestions</li>
-                            <li>Press down arrow key (↓) to switch between suggestions</li>
-                            <li><a href="#" style={{ color: '#007cba' }}>Learn more about formulas here</a></li>
-                          </ul>
-                        </div>
-                        
-                        <TextField
-                          label="Formula Label"
-                          value={formulaLabel}
-                          onChange={setFormulaLabel}
-                          placeholder="Price"
-                        />
-                        
-                        <TextField
-                          label="Minimum Formula Value"
-                          value={minFormulaValue}
-                          onChange={setMinFormulaValue}
-                          type="number"
-                          placeholder="0"
-                          helpText="Optional: Set a minimum value for the calculated result"
-                        />
-                      </VerticalStack>
-                    </div>
-                  )}
+                <Tabs
+                  tabs={[
+                    {
+                      id: 0,
+                      content: 'Formula',
+                      icon: AnalyticsMinor
+                    },
+                    {
+                      id: 1,
+                      content: 'Products',
+                      icon: PackageMajor
+                    },
+                    {
+                      id: 2,
+                      content: 'Advanced',
+                      icon: SettingsMinor
+                    }
+                  ]}
+                  selected={rightActiveTab}
+                  onSelect={setRightActiveTab}
+                >
+                  {rightActiveTab === 0 && (
+                   <div style={{ padding: '32px' }}>
+                     <VerticalStack gap="6">
+                       <div>
+                         <Text variant="headingLg" fontWeight="semibold">
+                           Formula Configuration
+                         </Text>
+                         <Text variant="bodyLg" color="subdued">
+                           Define the mathematical formula for calculating prices
+                         </Text>
+                       </div>
+                       
+                       <TextField
+                         label="Formula"
+                         value={formula}
+                         onChange={setFormula}
+                         placeholder="e.g., basePrice + (length * width * 0.15) + (materialMultiplier * length * width)"
+                         multiline={6}
+                         helpText="Use mathematical operators: +, -, *, /, () and variable names"
+                       />
+                       
+                       <div style={{ 
+                         padding: '24px', 
+                         backgroundColor: '#f6f6f7', 
+                         borderRadius: '12px',
+                         fontSize: '16px'
+                       }}>
+                         <Text variant="bodyLg" fontWeight="semibold">Formula Tips:</Text>
+                         <ul style={{ margin: '16px 0 0 28px', padding: 0, lineHeight: '1.6' }}>
+                           <li>Press tab key to use suggestions</li>
+                           <li>Press down arrow key (↓) to switch between suggestions</li>
+                           <li><a href="#" style={{ color: '#007cba' }}>Learn more about formulas here</a></li>
+                         </ul>
+                       </div>
+                       
+                       <TextField
+                         label="Formula Label"
+                         value={formulaLabel}
+                         onChange={setFormulaLabel}
+                         placeholder="Price"
+                       />
+                       
+                       <TextField
+                         label="Minimum Formula Value"
+                         value={minFormulaValue}
+                         onChange={setMinFormulaValue}
+                         type="number"
+                         placeholder="0"
+                         helpText="Optional: Set a minimum value for the calculated result"
+                       />
+                     </VerticalStack>
+                   </div>
+                 )}
                   
-                                                        {rightActiveTab === 1 && (
-                     <div style={{ padding: '16px' }}>
-                       <VerticalStack gap="4">
-                         <div>
-                           <Text variant="headingMd" fontWeight="semibold">
-                             Product Association
-                           </Text>
-                           <Text variant="bodyMd" color="subdued">
-                             Link this calculator to specific Shopify products
-                           </Text>
-                         </div>
-                         
-                         <div style={{ 
-                           padding: '16px', 
-                           backgroundColor: '#f6f6f7', 
-                           borderRadius: '4px',
-                           textAlign: 'center'
-                         }}>
-                           <Text variant="bodyMd" color="subdued">
-                             Product association feature coming soon...
-                           </Text>
-                         </div>
-                       </VerticalStack>
-                     </div>
-                   )}
-                   
-                                      {rightActiveTab === 2 && (
-                    <div style={{ padding: '16px' }}>
-                      <VerticalStack gap="4">
+                 {rightActiveTab === 1 && (
+                   <div style={{ padding: '32px' }}>
+                     <VerticalStack gap="5">
+                       <div>
+                         <Text variant="headingLg" fontWeight="semibold">
+                           Product Association
+                         </Text>
+                         <Text variant="bodyLg" color="subdued">
+                           Link this calculator to specific Shopify products
+                         </Text>
+                       </div>
+                       
+                       <div style={{ 
+                         padding: '32px', 
+                         backgroundColor: '#f6f6f7', 
+                         borderRadius: '12px',
+                         textAlign: 'center'
+                       }}>
+                         <Text variant="bodyLg" color="subdued">
+                           Product association feature coming soon...
+                         </Text>
+                       </div>
+                     </VerticalStack>
+                   </div>
+                 )}
+                 
+                  {rightActiveTab === 2 && (
+                    <div style={{ padding: '32px' }}>
+                      <VerticalStack gap="5">
                         <div>
-                          <Text variant="headingMd" fontWeight="semibold">
+                          <Text variant="headingLg" fontWeight="semibold">
                             Advanced Configuration
                           </Text>
-                          <Text variant="bodyMd" color="subdued">
+                          <Text variant="bodyLg" color="subdued">
                             Additional settings and options
                           </Text>
                         </div>
                         
                         <div style={{ 
-                          padding: '16px', 
+                          padding: '32px', 
                           backgroundColor: '#f6f6f7', 
-                          borderRadius: '4px',
+                          borderRadius: '12px',
                           textAlign: 'center'
                         }}>
-                          <Text variant="bodyMd" color="subdued">
+                          <Text variant="bodyLg" color="subdued">
                             Advanced configuration options coming soon...
                           </Text>
                         </div>
                       </VerticalStack>
                     </div>
                   )}
-                </Tabs>
-              </LegacyCard>
-            </div>
-          </div>
-        </Layout.Section>
+                 </Tabs>
+               </LegacyCard>
+             </div>
+           </div>
+         </Layout.Section>
       </Layout>
     </Page>
+      </div>
+    </>
   );
 }
