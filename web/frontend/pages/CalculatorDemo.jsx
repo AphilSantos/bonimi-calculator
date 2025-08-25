@@ -1,10 +1,42 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Page, Layout, LegacyCard, Text, VerticalStack, Button, Select } from '@shopify/polaris';
 import { CustomerCalculator } from '../components/CustomerCalculator';
+import { getCalculatorsForDisplay } from '../utils/calculatorDataTransform';
 
 export default function CalculatorDemo() {
   const [selectedCalculator, setSelectedCalculator] = useState(null);
   const [basePrice, setBasePrice] = useState(50);
+  const [calculators, setCalculators] = useState([]);
+
+  // Load calculators from localStorage
+  useEffect(() => {
+    try {
+      const displayCalculators = getCalculatorsForDisplay();
+      console.log('CalculatorDemo: Loaded calculators from localStorage (transformed):', displayCalculators);
+      setCalculators(displayCalculators);
+    } catch (error) {
+      console.error('CalculatorDemo: Failed to load calculators from localStorage:', error);
+      setCalculators([]);
+    }
+  }, []);
+
+  // Listen for storage changes to refresh calculators when new ones are saved
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'bonimi_calculators') {
+        try {
+          const displayCalculators = getCalculatorsForDisplay();
+          console.log('CalculatorDemo: Storage changed, reloading calculators:', displayCalculators);
+          setCalculators(displayCalculators);
+        } catch (error) {
+          console.error('CalculatorDemo: Failed to reload calculators after storage change:', error);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   // Sample calculators for testing
   const sampleCalculators = [
@@ -81,8 +113,11 @@ export default function CalculatorDemo() {
     }
   ];
 
+  // Use saved calculators if available, otherwise fall back to sample calculators
+  const availableCalculators = calculators.length > 0 ? calculators : sampleCalculators;
+
   const handleCalculatorSelect = (value) => {
-    const calculator = sampleCalculators.find(calc => calc.id === parseInt(value));
+    const calculator = availableCalculators.find(calc => calc.id === parseInt(value) || calc.id === value);
     setSelectedCalculator(calculator);
   };
 
@@ -114,13 +149,28 @@ export default function CalculatorDemo() {
                     Select a calculator and configure your custom product to see real-time pricing
                   </Text>
                 </div>
-                <Button
-                  primary
-                  url="/calculatorBuilder"
-                  external
-                >
-                  Create New Calculator
-                </Button>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <Button
+                    onClick={() => {
+                      try {
+                        const displayCalculators = getCalculatorsForDisplay();
+                        console.log('Manual refresh: Loaded calculators:', displayCalculators);
+                        setCalculators(displayCalculators);
+                      } catch (error) {
+                        console.error('Manual refresh failed:', error);
+                      }
+                    }}
+                  >
+                    Refresh Calculators
+                  </Button>
+                  <Button
+                    primary
+                    url="/calculatorBuilder"
+                    external
+                  >
+                    Create New Calculator
+                  </Button>
+                </div>
               </div>
 
               <div>
@@ -150,7 +200,7 @@ export default function CalculatorDemo() {
                 <Select
                   options={[
                     { label: 'Choose a calculator...', value: '' },
-                    ...sampleCalculators.map(calc => ({
+                    ...availableCalculators.map(calc => ({
                       label: calc.name,
                       value: calc.id.toString()
                     }))

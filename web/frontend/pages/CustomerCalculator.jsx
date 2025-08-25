@@ -17,6 +17,7 @@ import {
   AlertMinor,
   PlusMinor
 } from '@shopify/polaris-icons';
+import { getCalculatorsForDisplay } from '../utils/calculatorDataTransform';
 
 export default function CustomerCalculator() {
   // State for calculator selection and data
@@ -35,14 +36,27 @@ export default function CustomerCalculator() {
     loadCalculators();
   }, []);
 
+  // Listen for storage changes to refresh calculators when new ones are saved
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'bonimi_calculators') {
+        console.log('CustomerCalculator page: Storage changed, reloading calculators');
+        loadCalculators();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   // Load calculators from localStorage
   const loadCalculators = () => {
     try {
-      const savedCalculators = JSON.parse(localStorage.getItem('bonimi_calculators') || '[]');
-      setCalculators(savedCalculators);
+      const displayCalculators = getCalculatorsForDisplay();
+      setCalculators(displayCalculators);
       
       // If no calculators exist, create a demo calculator
-      if (savedCalculators.length === 0) {
+      if (displayCalculators.length === 0) {
         createDemoCalculator();
       }
     } catch (error) {
@@ -156,6 +170,9 @@ export default function CustomerCalculator() {
 
   // Handle calculator selection
   const handleCalculatorSelect = (calculator) => {
+    console.log('CustomerCalculator: Selected calculator:', calculator);
+    console.log('CustomerCalculator: Calculator elements:', calculator.elements);
+    console.log('CustomerCalculator: Calculator fields:', calculator.fields);
     setSelectedCalculator(calculator);
   };
 
@@ -181,19 +198,26 @@ export default function CustomerCalculator() {
     
     const newErrors = {};
     
-    selectedCalculator.elements.forEach(element => {
-      if (element.required) {
-        const value = formData[element.id];
+    // Support both elements (CalculatorBuilder format) and fields (other pages format)
+    const elementsToValidate = selectedCalculator.elements || selectedCalculator.fields || [];
+    elementsToValidate.forEach(element => {
+      const elementId = element.id || element.name;
+      const elementLabel = element.label;
+      const elementType = element.type;
+      const elementRequired = element.required;
+      
+      if (elementRequired) {
+        const value = formData[elementId];
         if (!value || value === '') {
-          newErrors[element.id] = `${element.label} is required`;
-        } else if (element.type === 'number-input') {
+          newErrors[elementId] = `${elementLabel} is required`;
+        } else if (elementType === 'number-input' || elementType === 'number') {
           const numValue = parseFloat(value);
           if (isNaN(numValue)) {
-            newErrors[element.id] = `${element.label} must be a valid number`;
+            newErrors[elementId] = `${elementLabel} must be a valid number`;
           } else if (element.min && numValue < element.min) {
-            newErrors[element.id] = `${element.label} must be at least ${element.min}`;
+            newErrors[elementId] = `${elementLabel} must be at least ${element.min}`;
           } else if (element.max && numValue > element.max) {
-            newErrors[element.id] = `${element.label} must be no more than ${element.max}`;
+            newErrors[elementId] = `${elementLabel} must be no more than ${element.max}`;
           }
         }
       }
@@ -257,37 +281,48 @@ export default function CustomerCalculator() {
 
   // Render form elements
   const renderFormElement = (element) => {
-    const error = errors[element.id];
-    const value = formData[element.id] || '';
+    // Support both elements (CalculatorBuilder format) and fields (other pages format)
+    const elementId = element.id || element.name;
+    const elementLabel = element.label;
+    const elementType = element.type;
+    const elementRequired = element.required;
+    const elementPlaceholder = element.placeholder;
+    const elementMin = element.min;
+    const elementMax = element.max;
+    const elementStep = element.step;
+    
+    const error = errors[elementId];
+    const value = formData[elementId] || '';
 
-    switch (element.type) {
+    switch (elementType) {
       case 'number-input':
+      case 'number':
         return (
           <TextField
-            key={element.id}
-            label={element.label}
+            key={elementId}
+            label={elementLabel}
             type="number"
             value={value}
-            onChange={(value) => handleInputChange(element.id, value)}
-            placeholder={element.placeholder}
-            min={element.min}
-            max={element.max}
-            step={element.step}
+            onChange={(value) => handleInputChange(elementId, value)}
+            placeholder={elementPlaceholder}
+            min={elementMin}
+            max={elementMax}
+            step={elementStep}
             error={error}
-            required={element.required}
+            required={elementRequired}
           />
         );
 
       case 'select':
         return (
           <Select
-            key={element.id}
-            label={element.label}
-            options={element.options}
+            key={elementId}
+            label={elementLabel}
+            options={element.options || []}
             value={value}
-            onChange={(value) => handleInputChange(element.id, value)}
+            onChange={(value) => handleInputChange(elementId, value)}
             error={error}
-            required={element.required}
+            required={elementRequired}
           />
         );
 
@@ -333,9 +368,24 @@ export default function CustomerCalculator() {
               <Text variant="headingLg" fontWeight="semibold">
                 Select Calculator
               </Text>
-              <Button url="/calculatorBuilder" icon={PlusMinor}>
-                Create New Calculator
-              </Button>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <Button
+                  onClick={() => {
+                    try {
+                      const displayCalculators = getCalculatorsForDisplay();
+                      console.log('CustomerCalculator: Manual refresh, loaded calculators:', displayCalculators);
+                      setCalculators(displayCalculators);
+                    } catch (error) {
+                      console.error('CustomerCalculator: Manual refresh failed:', error);
+                    }
+                  }}
+                >
+                  Refresh
+                </Button>
+                <Button url="/calculatorBuilder" icon={PlusMinor}>
+                  Create New Calculator
+                </Button>
+              </div>
             </div>
             <div style={{ 
               display: 'grid', 
@@ -378,9 +428,24 @@ export default function CustomerCalculator() {
             <Text variant="headingLg" fontWeight="semibold">
               Available Calculators
             </Text>
-            <Button url="/calculatorBuilder" icon={PlusMinor}>
-              Create New Calculator
-            </Button>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <Button
+                onClick={() => {
+                  try {
+                    const displayCalculators = getCalculatorsForDisplay();
+                    console.log('CustomerCalculator: Manual refresh, loaded calculators:', displayCalculators);
+                    setCalculators(displayCalculators);
+                  } catch (error) {
+                    console.error('CustomerCalculator: Manual refresh failed:', error);
+                  }
+                }}
+              >
+                Refresh
+              </Button>
+              <Button url="/calculatorBuilder" icon={PlusMinor}>
+                Create New Calculator
+              </Button>
+            </div>
           </div>
         </LegacyCard>
       )}
@@ -432,7 +497,7 @@ export default function CustomerCalculator() {
                 gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', 
                 gap: '24px' 
               }}>
-                {selectedCalculator.elements.map(renderFormElement)}
+                {(selectedCalculator.elements || selectedCalculator.fields || []).map(renderFormElement)}
               </div>
 
               {/* Calculate Button */}

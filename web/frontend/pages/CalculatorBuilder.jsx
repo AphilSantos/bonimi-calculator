@@ -274,6 +274,13 @@ export default function CalculatorBuilder() {
         el.id === elementId ? { ...el, config: { ...el.config, ...config } } : el
       )
     );
+    
+    // Also update the selectedElement to reflect changes immediately in the properties panel
+    setSelectedElement(prev => 
+      prev && prev.id === elementId 
+        ? { ...prev, config: { ...prev.config, ...config } }
+        : prev
+    );
   };
 
   const handleSaveCalculator = () => {
@@ -954,22 +961,24 @@ export default function CalculatorBuilder() {
       );
     }
 
+
+
     const renderConfigFields = () => {
       try {
         switch (selectedElement.type) {
           case 'text-input':
             return (
               <VerticalStack gap="3">
-                <TextField
-                  label="Label"
-                  value={selectedElement.config?.label || ''}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { label: value })}
-                />
-                <TextField
-                  label="Placeholder"
-                  value={selectedElement.config?.placeholder || ''}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { placeholder: value })}
-                />
+                                 <TextField
+                   label="Label"
+                   value={selectedElement.config?.label || ''}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { label: value })}
+                 />
+                 <TextField
+                   label="Placeholder"
+                   value={selectedElement.config?.placeholder || ''}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { placeholder: value })}
+                 />
                 <Select
                   label="Input Type"
                   options={[
@@ -1025,51 +1034,51 @@ export default function CalculatorBuilder() {
           case 'number-input':
             return (
               <VerticalStack gap="3">
-                <TextField
-                  label="Label"
-                  value={selectedElement.config?.label || ''}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { label: value })}
-                />
-                <TextField
-                  label="Placeholder"
-                  value={selectedElement.config?.placeholder || ''}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { placeholder: value })}
-                />
-                <TextField
-                  label="Minimum Value"
-                  type="number"
-                  value={selectedElement.config?.min || 0}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { min: parseInt(value) || 0 })}
-                />
-                <TextField
-                  label="Maximum Value"
-                  type="number"
-                  value={selectedElement.config?.max || 1000}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { max: parseInt(value) || 1000 })}
-                />
-                <TextField
-                  label="Step"
-                  type="number"
-                  value={selectedElement.config?.step || 1}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { step: parseInt(value) || 1 })}
-                />
+                                 <TextField
+                   label="Label"
+                   value={selectedElement.config?.label || ''}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { label: value })}
+                 />
+                 <TextField
+                   label="Placeholder"
+                   value={selectedElement.config?.placeholder || ''}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { placeholder: value })}
+                 />
+                 <TextField
+                   label="Minimum Value"
+                   type="number"
+                   value={selectedElement.config?.min ?? 0}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { min: parseInt(value) || 0 })}
+                 />
+                 <TextField
+                   label="Maximum Value"
+                   type="number"
+                   value={selectedElement.config?.max ?? 1000}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { max: parseInt(value) || 0 })}
+                 />
+                 <TextField
+                   label="Step"
+                   type="number"
+                   value={selectedElement.config?.step ?? 1}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { step: parseInt(value) || 1 })}
+                 />
               </VerticalStack>
             );
           
           case 'calculation-display':
             return (
               <VerticalStack gap="3">
-                <TextField
-                  label="Label"
-                  value={selectedElement.config?.label || ''}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { label: value })}
-                />
-                <TextField
-                  label="Formula"
-                  value={selectedElement.config?.formula || ''}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { formula: value })}
-                  multiline={2}
-                />
+                                 <TextField
+                   label="Label"
+                   value={selectedElement.config?.label || ''}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { label: value })}
+                 />
+                 <TextField
+                   label="Formula"
+                   value={selectedElement.config?.formula || ''}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { formula: value })}
+                   multiline={2}
+                 />
                 <Select
                   label="Currency"
                   options={[
@@ -1099,7 +1108,7 @@ export default function CalculatorBuilder() {
     };
 
     return (
-      <div style={{ padding: '16px' }}>
+      <div key={`properties-${selectedElement.id}`} style={{ padding: '16px' }}>
         <VerticalStack gap="4">
           <div>
             <Text variant="headingMd" fontWeight="semibold">
@@ -1109,6 +1118,9 @@ export default function CalculatorBuilder() {
               Configure the properties for this element
             </Text>
           </div>
+          
+          
+          
           {renderConfigFields()}
         </VerticalStack>
       </div>
@@ -1117,7 +1129,7 @@ export default function CalculatorBuilder() {
 
   // Grid snapping configuration
   const gridSize = 40; // Grid cell size in pixels
-  const componentSpacing = 20; // Vertical spacing between components
+  const componentSpacing = 40; // Vertical spacing between components (increased from 20px)
   const componentWidth = 400; // Standard component width
   const componentHeight = 80; // Standard component height
   const canvasWidth = 800; // Canvas width for horizontal centering
@@ -1249,12 +1261,11 @@ export default function CalculatorBuilder() {
         `}
       </style>
       
-      <div style={{ 
-        height: '100vh', 
-        display: 'flex', 
-        flexDirection: 'column',
-        overflow: 'hidden'
-      }}>
+             <div style={{ 
+         height: '100vh', 
+         display: 'flex', 
+         flexDirection: 'column'
+       }}>
       
     <Page
       title="Calculator Builder"
@@ -1320,12 +1331,9 @@ export default function CalculatorBuilder() {
                     }
                   ]}
                   selected={leftActiveTab}
-                  onSelect={(selected) => {
-                    console.log('Tab selected:', selected, 'type:', typeof selected);
-                    setLeftActiveTab(selected);
-                  }}
+                                     onSelect={setLeftActiveTab}
                 >
-                  {console.log('Tab check - leftActiveTab:', leftActiveTab, '=== 0:', leftActiveTab === 0)}
+                  
                   {leftActiveTab === 0 && (
                    <div style={{ padding: '32px' }}>
                      <VerticalStack gap="6">
@@ -1343,63 +1351,60 @@ export default function CalculatorBuilder() {
                         overflowY: 'auto', // Make it scrollable
                         paddingRight: '8px' // Add some padding for the scrollbar
                       }}>
-                        {console.log('Rendering elements:', availableElements)}
+                        
                         
                         {availableElements && availableElements.length > 0 ? (
-                          availableElements.map((element, index) => {
-                            console.log(`Rendering element ${index}:`, element);
-                            return (
-                              <div
-                                key={element.id}
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, element)}
-                                style={{
-                                  padding: '24px',
-                                  border: '2px solid #e1e3e5',
-                                  borderRadius: '12px',
-                                  marginBottom: '20px',
-                                  cursor: 'grab',
-                                  backgroundColor: 'white',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '20px',
-                                  transition: 'all 0.2s ease',
-                                  ':hover': {
-                                    borderColor: '#007cba',
-                                    boxShadow: '0 4px 16px rgba(0, 124, 186, 0.2)'
-                                  }
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.borderColor = '#007cba';
-                                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 124, 186, 0.2)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.borderColor = '#e1e3e5';
-                                  e.currentTarget.style.boxShadow = 'none';
-                                }}
-                              >
-                                <div style={{ 
-                                  width: '48px', 
-                                  height: '48px', 
-                                  backgroundColor: '#f6f6f7',
-                                  borderRadius: '10px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center'
-                                }}>
-                                  <Icon source={CirclePlusMinor} />
+                                                                                availableElements.map((element, index) => (
+                                <div
+                                  key={element.id}
+                                  draggable
+                                  onDragStart={(e) => handleDragStart(e, element)}
+                                  style={{
+                                    padding: '24px',
+                                    border: '2px solid #e1e3e5',
+                                    borderRadius: '12px',
+                                    marginBottom: '20px',
+                                    cursor: 'grab',
+                                    backgroundColor: 'white',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '20px',
+                                    transition: 'all 0.2s ease',
+                                    ':hover': {
+                                      borderColor: '#007cba',
+                                      boxShadow: '0 4px 16px rgba(0, 124, 186, 0.2)'
+                                    }
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.borderColor = '#007cba';
+                                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(0, 124, 186, 0.2)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.borderColor = '#e1e3e5';
+                                    e.currentTarget.style.boxShadow = 'none';
+                                  }}
+                                >
+                                  <div style={{ 
+                                    width: '48px', 
+                                    height: '48px', 
+                                    backgroundColor: '#f6f6f7',
+                                    borderRadius: '10px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}>
+                                    <Icon source={CirclePlusMinor} />
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <Text variant="bodyMd" fontWeight="semibold">
+                                      {element.name}
+                                    </Text>
+                                    <Text variant="bodyMd" color="subdued" style={{ marginTop: '4px' }}>
+                                      {element.description}
+                                    </Text>
+                                  </div>
                                 </div>
-                                <div style={{ flex: 1 }}>
-                                  <Text variant="bodyLg" fontWeight="semibold">
-                                    {element.name}
-                                  </Text>
-                                  <Text variant="bodyMd" color="subdued" style={{ marginTop: '4px' }}>
-                                    {element.description}
-                                  </Text>
-                                </div>
-                              </div>
-                            );
-                          })
+                              ))
                         ) : (
                           <div style={{ 
                             padding: '32px', 
@@ -1463,22 +1468,23 @@ export default function CalculatorBuilder() {
                   </div>
                 </div>
                 
-                <div
-                  ref={canvasRef}
-                  style={{
-                    minHeight: '900px',
-                    backgroundColor: '#fafafa',
-                    border: '4px dashed #e1e3e5',
-                    borderRadius: '16px',
-                    position: 'relative',
-                    overflow: 'hidden',
-                    backgroundImage: `
-                      linear-gradient(rgba(0, 124, 186, 0.1) 1px, transparent 1px),
-                      linear-gradient(90deg, rgba(0, 124, 186, 0.1) 1px, transparent 1px)
-                    `,
-                    backgroundSize: `${gridSize}px ${gridSize}px`,
-                    cursor: 'default'
-                  }}
+                                 <div
+                   ref={canvasRef}
+                   style={{
+                     minHeight: '900px',
+                     height: 'auto',
+                     backgroundColor: '#fafafa',
+                     border: '4px dashed #e1e3e5',
+                     borderRadius: '16px',
+                     position: 'relative',
+                     overflow: 'auto',
+                     backgroundImage: `
+                       linear-gradient(rgba(0, 124, 186, 0.1) 1px, transparent 1px),
+                       linear-gradient(90deg, rgba(0, 124, 186, 0.1) 1px, transparent 1px)
+                     `,
+                     backgroundSize: `${gridSize}px ${gridSize}px`,
+                     cursor: 'default'
+                   }}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragEnd}
                   onDrop={(e) => {
@@ -1553,10 +1559,16 @@ export default function CalculatorBuilder() {
                     );
                   })}
                   
-                  {/* Canvas Elements */}
-                  <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '900px' }}>
-                    {canvasElements.map(renderCanvasElement)}
-                  </div>
+                                     {/* Canvas Elements */}
+                   <div style={{ 
+                     position: 'relative', 
+                     width: '100%', 
+                     height: 'auto',
+                     minHeight: '900px',
+                     paddingBottom: '100px' // Add padding at bottom for better scrolling
+                   }}>
+                     {canvasElements.map(renderCanvasElement)}
+                   </div>
                   
                   {/* Empty State */}
                   {canvasElements.length === 0 && (
