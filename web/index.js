@@ -3,6 +3,8 @@ import { join } from "path";
 import { readFileSync } from "fs";
 import express from "express";
 import serveStatic from "serve-static";
+import sqlite3 from "sqlite3";
+import { open } from "sqlite";
 
 import shopify from "./shopify.js";
 import productCreator from "./product-creator.js";
@@ -20,6 +22,63 @@ const STATIC_PATH =
     : `${process.cwd()}/frontend/`;
 
 const app = express();
+
+// Database setup
+let db;
+
+async function initializeDatabase() {
+  try {
+    db = await open({
+      filename: './database.sqlite',
+      driver: sqlite3.Database
+    });
+    
+    // Create calculators table if it doesn't exist
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS calculators (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        formula TEXT NOT NULL,
+        elements TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Create sample_data table for shop admin configuration
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS sample_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT UNIQUE NOT NULL,
+        value REAL NOT NULL,
+        label TEXT NOT NULL,
+        description TEXT,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Insert default sample data if none exists
+    const sampleDataCount = await db.get("SELECT COUNT(*) as count FROM sample_data");
+    if (sampleDataCount.count === 0) {
+      await db.exec(`
+        INSERT INTO sample_data (key, value, label, description) VALUES
+        ('basePrice', 50, 'Base Price (£)', 'Starting price for calculations'),
+        ('pricePerSqm', 150, 'Price per m² (£)', 'Price per square meter'),
+        ('materialMultiplier', 1.2, 'Material Multiplier', 'Material cost multiplier'),
+        ('installationCost', 25, 'Installation Cost (£)', 'Additional installation cost')
+      `);
+    }
+    
+    console.log('Database initialized successfully');
+  } catch (error) {
+    console.error('Database initialization error:', error);
+  }
+}
+
+// Initialize database on startup
+initializeDatabase();
 
 // Set up Shopify authentication and webhook handling
 app.get(shopify.config.auth.path, shopify.auth.begin());
@@ -73,24 +132,19 @@ app.post("/api/products", async (_req, res) => {
 // Calculator API endpoints
 app.get("/api/calculators", async (_req, res) => {
   try {
-    // In production, fetch from database
-    const calculators = [
-      new Calculator({
-        id: 1,
-        name: 'Furniture Dimensions Calculator',
-        description: 'Calculate price based on length, width, and height',
-        formula: 'basePrice + (length * width * height * 0.01)',
-        fields: [
-          { name: 'length', label: 'Length (cm)', type: 'number', required: true },
-          { name: 'width', label: 'Width (cm)', type: 'number', required: true },
-          { name: 'height', label: 'Height (cm)', type: 'number', required: true }
-        ],
-        productIds: ['product1', 'product2'],
-        status: 'active'
-      })
-    ];
+    if (!db) {
+      return res.status(500).json({ error: 'Database not initialized' });
+    }
     
-    res.status(200).json(calculators.map(calc => calc.getConfig()));
+    const calculators = await db.all("SELECT * FROM calculators ORDER BY createdAt DESC");
+    
+    // Parse elements JSON for each calculator
+    const parsedCalculators = calculators.map(calc => ({
+      ...calc,
+      elements: JSON.parse(calc.elements || '[]')
+    }));
+    
+    res.status(200).json(parsedCalculators);
   } catch (error) {
     console.error('Failed to fetch calculators:', error);
     res.status(500).json({ error: 'Failed to fetch calculators' });
@@ -99,18 +153,27 @@ app.get("/api/calculators", async (_req, res) => {
 
 app.post("/api/calculators", async (req, res) => {
   try {
-    const calculator = new Calculator(req.body);
-    const errors = calculator.validate();
-    
-    if (errors.length > 0) {
-      return res.status(400).json({ errors });
+    if (!db) {
+      return res.status(500).json({ error: 'Database not initialized' });
     }
     
-    // In production, save to database
-    // For now, just return success
+    const { name, description, formula, elements, status = 'active' } = req.body;
+    
+    if (!name || !formula || !elements) {
+      return res.status(400).json({ error: 'Name, formula, and elements are required' });
+    }
+    
+    const result = await db.run(
+      "INSERT INTO calculators (name, description, formula, elements, status) VALUES (?, ?, ?, ?, ?)",
+      [name, description, formula, JSON.stringify(elements), status]
+    );
+    
+    const newCalculator = await db.get("SELECT * FROM calculators WHERE id = ?", result.lastID);
+    newCalculator.elements = JSON.parse(newCalculator.elements);
+    
     res.status(201).json({ 
       success: true, 
-      calculator: calculator.getConfig() 
+      calculator: newCalculator 
     });
   } catch (error) {
     console.error('Failed to create calculator:', error);
@@ -120,23 +183,19 @@ app.post("/api/calculators", async (req, res) => {
 
 app.get("/api/calculators/:id", async (req, res) => {
   try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not initialized' });
+    }
+    
     const { id } = req.params;
+    const calculator = await db.get("SELECT * FROM calculators WHERE id = ?", id);
     
-    // In production, fetch from database
-    const calculator = new Calculator({
-      id: parseInt(id),
-      name: 'Furniture Dimensions Calculator',
-      description: 'Calculate price based on length, width, and height',
-      formula: 'basePrice + (length * width * height * 0.01)',
-      fields: [
-        { name: 'length', label: 'Length (cm)', type: 'number', required: true },
-        { name: 'width', label: 'Width (cm)', type: 'number', required: true },
-        { name: 'height', label: 'Height (cm)', type: 'number', required: true }
-      ],
-      status: 'active'
-    });
+    if (!calculator) {
+      return res.status(404).json({ error: 'Calculator not found' });
+    }
     
-    res.status(200).json(calculator.getConfig());
+    calculator.elements = JSON.parse(calculator.elements);
+    res.status(200).json(calculator);
   } catch (error) {
     console.error('Failed to fetch calculator:', error);
     res.status(500).json({ error: 'Failed to fetch calculator' });
@@ -145,18 +204,28 @@ app.get("/api/calculators/:id", async (req, res) => {
 
 app.put("/api/calculators/:id", async (req, res) => {
   try {
-    const { id } = req.params;
-    const calculator = new Calculator({ ...req.body, id: parseInt(id) });
-    const errors = calculator.validate();
-    
-    if (errors.length > 0) {
-      return res.status(400).json({ errors });
+    if (!db) {
+      return res.status(500).json({ error: 'Database not initialized' });
     }
     
-    // In production, update in database
+    const { id } = req.params;
+    const { name, description, formula, elements, status } = req.body;
+    
+    if (!name || !formula || !elements) {
+      return res.status(400).json({ error: 'Name, formula, and elements are required' });
+    }
+    
+    await db.run(
+      "UPDATE calculators SET name = ?, description = ?, formula = ?, elements = ?, status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?",
+      [name, description, formula, JSON.stringify(elements), status, id]
+    );
+    
+    const updatedCalculator = await db.get("SELECT * FROM calculators WHERE id = ?", id);
+    updatedCalculator.elements = JSON.parse(updatedCalculator.elements);
+    
     res.status(200).json({ 
       success: true, 
-      calculator: calculator.getConfig() 
+      calculator: updatedCalculator 
     });
   } catch (error) {
     console.error('Failed to update calculator:', error);
@@ -166,14 +235,61 @@ app.put("/api/calculators/:id", async (req, res) => {
 
 app.delete("/api/calculators/:id", async (req, res) => {
   try {
-    const { id } = req.params;
+    if (!db) {
+      return res.status(500).json({ error: 'Database not initialized' });
+    }
     
-    // In production, delete from database
+    const { id } = req.params;
+    await db.run("DELETE FROM calculators WHERE id = ?", id);
     
     res.status(200).json({ success: true });
   } catch (error) {
     console.error('Failed to delete calculator:', error);
     res.status(500).json({ error: 'Failed to delete calculator' });
+  }
+});
+
+// Sample data API endpoints for shop admin configuration
+app.get("/api/sample-data", async (_req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not initialized' });
+    }
+    
+    const sampleData = await db.all("SELECT * FROM sample_data ORDER BY key");
+    res.status(200).json(sampleData);
+  } catch (error) {
+    console.error('Failed to fetch sample data:', error);
+    res.status(500).json({ error: 'Failed to fetch sample data' });
+  }
+});
+
+app.put("/api/sample-data/:key", async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database not initialized' });
+    }
+    
+    const { key } = req.params;
+    const { value, label, description } = req.body;
+    
+    if (value === undefined) {
+      return res.status(400).json({ error: 'Value is required' });
+    }
+    
+    await db.run(
+      "UPDATE sample_data SET value = ?, label = ?, description = ?, updatedAt = CURRENT_TIMESTAMP WHERE key = ?",
+      [value, label, description, key]
+    );
+    
+    const updatedData = await db.get("SELECT * FROM sample_data WHERE key = ?", key);
+    res.status(200).json({ 
+      success: true, 
+      sampleData: updatedData 
+    });
+  } catch (error) {
+    console.error('Failed to update sample data:', error);
+    res.status(500).json({ error: 'Failed to update sample data' });
   }
 });
 

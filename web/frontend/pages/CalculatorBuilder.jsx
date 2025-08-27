@@ -32,10 +32,19 @@ export default function CalculatorBuilder() {
   const [formula, setFormula] = useState('');
   const [formulaLabel, setFormulaLabel] = useState('Price');
   const [minFormulaValue, setMinFormulaValue] = useState('');
+  const [basePrice, setBasePrice] = useState(50);
   const [canvasElements, setCanvasElements] = useState([]);
   const [selectedElement, setSelectedElement] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [existingCalculators, setExistingCalculators] = useState([]);
+  const [isLoadingCalculators, setIsLoadingCalculators] = useState(false);
+  const [editingCalculatorId, setEditingCalculatorId] = useState(null);
   const canvasRef = useRef(null);
+
+  // Load existing calculators on component mount
+  useEffect(() => {
+    loadExistingCalculators();
+  }, []);
 
   // Debug logging
   React.useEffect(() => {
@@ -43,6 +52,67 @@ export default function CalculatorBuilder() {
     console.log('availableElements:', availableElements);
     console.log('leftActiveTab:', leftActiveTab, 'type:', typeof leftActiveTab);
   }, [leftActiveTab]);
+
+  // Load existing calculators from API
+  const loadExistingCalculators = async () => {
+    setIsLoadingCalculators(true);
+    try {
+      const response = await fetch('/api/calculators');
+      if (!response.ok) {
+        throw new Error('Failed to fetch calculators');
+      }
+      const data = await response.json();
+      console.log('Loaded existing calculators:', data);
+      setExistingCalculators(data);
+    } catch (error) {
+      console.error('Failed to load existing calculators:', error);
+      setExistingCalculators([]);
+    } finally {
+      setIsLoadingCalculators(false);
+    }
+  };
+
+  // Load a calculator into the builder for editing
+  const loadCalculatorForEditing = (calculator) => {
+    console.log('Loading calculator for editing:', calculator);
+    
+    // Set calculator name
+    setCalculatorName(calculator.name || 'Untitled Calculator');
+    
+    // Set formula and base price
+    setFormula(calculator.formula || '');
+    setFormulaLabel(calculator.formulaLabel || 'Price');
+    setBasePrice(calculator.basePrice || 50);
+    
+    // Load canvas elements
+    if (calculator.elements && Array.isArray(calculator.elements)) {
+      setCanvasElements(calculator.elements);
+    } else {
+      setCanvasElements([]);
+    }
+    
+    // Set editing mode
+    setEditingCalculatorId(calculator.id);
+    setSelectedElement(null);
+    
+    console.log('Calculator loaded for editing:', {
+      name: calculator.name,
+      formula: calculator.formula,
+      basePrice: calculator.basePrice,
+      elements: calculator.elements
+    });
+  };
+
+  // Start creating a new calculator
+  const startNewCalculator = () => {
+    setCalculatorName('New Calculator_' + new Date().toISOString().slice(0, 10));
+    setFormula('');
+    setFormulaLabel('Price');
+    setBasePrice(50);
+    setCanvasElements([]);
+    setSelectedElement(null);
+    setEditingCalculatorId(null);
+  };
 
   // Available UI elements that can be dragged onto the canvas
   const availableElements = [
@@ -171,6 +241,7 @@ export default function CalculatorBuilder() {
     'height',
     'quantity',
     'materialMultiplier',
+    'paintMultiplier',
     'edgeFinishing',
     'bracketCost',
     'numberOfBrackets'
@@ -283,7 +354,7 @@ export default function CalculatorBuilder() {
     );
   };
 
-  const handleSaveCalculator = () => {
+  const handleSaveCalculator = async () => {
     if (!calculatorName.trim()) {
       alert('Please enter a calculator name');
       return;
@@ -294,33 +365,85 @@ export default function CalculatorBuilder() {
       return;
     }
 
+    // Auto-detect multipliers from select elements
+    const multipliers = {};
+    
+    canvasElements.forEach(element => {
+      if (element.type === 'select' && element.config?.options) {
+        const elementId = element.id;
+        const options = element.config.options;
+        
+        // Create multipliers based on option values
+        if (elementId.includes('material') || elementId.includes('paint') || elementId.includes('quality')) {
+          multipliers[`${elementId}Multipliers`] = {};
+          options.forEach((option, index) => {
+            const optionValue = typeof option === 'string' ? option : option.value;
+            // Assign reasonable multiplier values
+            if (optionValue.toLowerCase().includes('economy') || optionValue.toLowerCase().includes('basic')) {
+              multipliers[`${elementId}Multipliers`][optionValue] = 0.8;
+            } else if (optionValue.toLowerCase().includes('premium') || optionValue.toLowerCase().includes('high')) {
+              multipliers[`${elementId}Multipliers`][optionValue] = 1.3;
+            } else {
+              multipliers[`${elementId}Multipliers`][optionValue] = 1.0;
+            }
+          });
+        }
+      }
+    });
+
     const calculatorData = {
-      id: `calc_${Date.now()}`,
       name: calculatorName,
       description: `Custom calculator for ${calculatorName}`,
       formula,
-      formulaLabel,
-      minFormulaValue: parseFloat(minFormulaValue) || 0,
       elements: canvasElements,
-      status: 'active',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      basePrice,
+      ...multipliers,
+      status: 'active'
     };
 
-    // Save to localStorage for now (in production, this would go to your backend)
     try {
-      const existingCalculators = JSON.parse(localStorage.getItem('bonimi_calculators') || '[]');
-      const updatedCalculators = [...existingCalculators, calculatorData];
-      localStorage.setItem('bonimi_calculators', JSON.stringify(updatedCalculators));
+      let response;
       
-      console.log('Calculator saved successfully:', calculatorData);
-      alert(`Calculator "${calculatorName}" saved successfully!`);
+      if (editingCalculatorId) {
+        // Update existing calculator
+        response = await fetch(`/api/calculators/${editingCalculatorId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(calculatorData)
+        });
+      } else {
+        // Create new calculator
+        response = await fetch('/api/calculators', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(calculatorData)
+        });
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to save calculator');
+      }
+
+      const result = await response.json();
       
-      // Reset form
-      setCalculatorName(`New Calculator_${new Date().toISOString().split('T')[0]}_${Math.floor(Math.random() * 100)}`);
-      setFormula('');
-      setCanvasElements([]);
-      setSelectedElement(null);
+      console.log('Calculator saved successfully:', result.calculator);
+      alert(`Calculator "${calculatorName}" ${editingCalculatorId ? 'updated' : 'saved'} successfully!`);
+      
+      // Refresh the list of existing calculators
+      await loadExistingCalculators();
+      
+      // Reset form for new calculator
+      if (!editingCalculatorId) {
+        setCalculatorName(`New Calculator_${new Date().toISOString().split('T')[0]}_${Math.floor(Math.random() * 100)}`);
+        setFormula('');
+        setBasePrice(50);
+        setCanvasElements([]);
+        setSelectedElement(null);
+      }
     } catch (error) {
       console.error('Error saving calculator:', error);
       alert('Error saving calculator. Please try again.');
@@ -1002,34 +1125,110 @@ export default function CalculatorBuilder() {
               </VerticalStack>
             );
           
-          case 'select':
-            return (
-              <VerticalStack gap="3">
-                <TextField
-                  label="Label"
-                  value={selectedElement.config?.label || ''}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { label: value })}
-                />
-                <TextField
-                  label="Options (comma-separated)"
-                  value={(selectedElement.config?.options || []).join(', ')}
-                  onChange={(value) => {
-                    const options = value.split(',').map(opt => opt.trim()).filter(opt => opt);
-                    handleElementConfigChange(selectedElement.id, { options });
-                  }}
-                  placeholder="Option 1, Option 2, Option 3"
-                />
-                <Select
-                  label="Required"
-                  options={[
-                    { label: 'Yes', value: 'true' },
-                    { label: 'No', value: 'false' }
-                  ]}
-                  value={selectedElement.config?.required?.toString() || 'false'}
-                  onChange={(value) => handleElementConfigChange(selectedElement.id, { required: value === 'true' })}
-                />
-              </VerticalStack>
-            );
+                     case 'select':
+             return (
+               <VerticalStack gap="3">
+                 <TextField
+                   label="Label"
+                   value={selectedElement.config?.label || ''}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { label: value })}
+                 />
+                 <TextField
+                   label="Options (comma-separated)"
+                   value={(selectedElement.config?.options || []).join(', ')}
+                   onChange={(value) => {
+                     const options = value.split(',').map(opt => opt.trim()).filter(opt => opt);
+                     handleElementConfigChange(selectedElement.id, { options });
+                   }}
+                   placeholder="Option 1, Option 2, Option 3"
+                 />
+                 <Select
+                   label="Required"
+                   options={[
+                     { label: 'Yes', value: 'true' },
+                     { label: 'No', value: 'false' }
+                   ]}
+                   value={selectedElement.config?.required?.toString() || 'false'}
+                   onChange={(value) => handleElementConfigChange(selectedElement.id, { required: value === 'true' })}
+                 />
+                 
+                 {/* Pricing Configuration */}
+                 <div style={{ 
+                   marginTop: '16px', 
+                   padding: '16px', 
+                   backgroundColor: '#f6f6f7', 
+                   borderRadius: '8px',
+                   border: '1px solid #e1e3e5'
+                 }}>
+                   <Text variant="bodyMd" fontWeight="semibold" style={{ marginBottom: '12px' }}>
+                     Pricing Configuration
+                   </Text>
+                   
+                   <Select
+                     label="Pricing Type"
+                     options={[
+                       { label: 'No pricing', value: 'none' },
+                       { label: 'Multiplier (e.g., 1.5x base price)', value: 'multiplier' },
+                       { label: 'Fixed price (replaces base price)', value: 'fixed' },
+                       { label: 'Additional cost (adds to base price)', value: 'additional' }
+                     ]}
+                     value={selectedElement.config?.pricingType || 'none'}
+                     onChange={(value) => handleElementConfigChange(selectedElement.id, { pricingType: value })}
+                   />
+                   
+                   {/* Show pricing fields if pricing type is selected */}
+                   {(selectedElement.config?.pricingType && selectedElement.config?.pricingType !== 'none') && (
+                     <div style={{ marginTop: '16px' }}>
+                       <Text variant="bodySm" color="subdued" style={{ marginBottom: '12px' }}>
+                         Set pricing for each option:
+                       </Text>
+                       
+                       {(selectedElement.config?.options || []).map((option, index) => (
+                         <div key={index} style={{ 
+                           marginBottom: '12px', 
+                           padding: '12px', 
+                           backgroundColor: 'white', 
+                           borderRadius: '6px',
+                           border: '1px solid #e1e3e5'
+                         }}>
+                           <Text variant="bodySm" fontWeight="semibold" style={{ marginBottom: '8px' }}>
+                             {option}
+                           </Text>
+                           <TextField
+                             label=""
+                             type="number"
+                             value={selectedElement.config?.pricing?.[option] || ''}
+                             onChange={(value) => {
+                               const currentPricing = selectedElement.config?.pricing || {};
+                               const newPricing = {
+                                 ...currentPricing,
+                                 [option]: parseFloat(value) || 0
+                               };
+                               handleElementConfigChange(selectedElement.id, { pricing: newPricing });
+                             }}
+                             placeholder={
+                               selectedElement.config?.pricingType === 'multiplier' ? '1.0' :
+                               selectedElement.config?.pricingType === 'fixed' ? '50.00' :
+                               '0.00'
+                             }
+                             suffix={
+                               selectedElement.config?.pricingType === 'multiplier' ? 'x' :
+                               selectedElement.config?.pricingType === 'fixed' ? 'GBP' :
+                               'GBP'
+                             }
+                             helpText={
+                               selectedElement.config?.pricingType === 'multiplier' ? 'Multiplier (e.g., 1.5 = 50% more expensive)' :
+                               selectedElement.config?.pricingType === 'fixed' ? 'Fixed price that replaces base price' :
+                               'Additional cost added to base price'
+                             }
+                           />
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                 </div>
+               </VerticalStack>
+             );
           
           case 'number-input':
             return (
@@ -1268,8 +1467,8 @@ export default function CalculatorBuilder() {
        }}>
       
     <Page
-      title="Calculator Builder"
-      subtitle="Create custom pricing calculators with drag-and-drop interface"
+      title={editingCalculatorId ? "Edit Calculator" : "Calculator Builder"}
+      subtitle={editingCalculatorId ? `Editing: ${calculatorName}` : "Create custom pricing calculators with drag-and-drop interface"}
       fullWidth
       backAction={{
         content: 'Back',
@@ -1277,7 +1476,7 @@ export default function CalculatorBuilder() {
         onAction: () => window.history.back()
       }}
       primaryAction={{
-        content: 'Save Calculator',
+        content: editingCalculatorId ? 'Update Calculator' : 'Save Calculator',
         onAction: handleSaveCalculator
       }}
       secondaryActions={[
@@ -1289,7 +1488,11 @@ export default function CalculatorBuilder() {
           content: 'Preview',
           icon: ViewMinor,
           onAction: () => setShowPreview(!showPreview)
-        }
+        },
+        ...(editingCalculatorId ? [{
+          content: 'New Calculator',
+          onAction: startNewCalculator
+        }] : [])
       ]}
     >
       <Layout>
@@ -1326,12 +1529,17 @@ export default function CalculatorBuilder() {
                     },
                     {
                       id: 1,
+                      content: 'Existing Calculators',
+                      icon: AnalyticsMinor
+                    },
+                    {
+                      id: 2,
                       content: 'Properties',
                       icon: SettingsMinor
                     }
                   ]}
                   selected={leftActiveTab}
-                                     onSelect={setLeftActiveTab}
+                  onSelect={setLeftActiveTab}
                 >
                   
                   {leftActiveTab === 0 && (
@@ -1418,12 +1626,127 @@ export default function CalculatorBuilder() {
                               Elements array: {JSON.stringify(availableElements)}
                             </Text>
                           </div>
+                                                )}
+                      </div>
+                    </div>
+                  )}
+
+                  {leftActiveTab === 1 && (
+                    <div style={{ padding: '32px' }}>
+                      <VerticalStack gap="6">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text variant="headingLg" fontWeight="semibold">
+                            Existing Calculators ({existingCalculators.length})
+                          </Text>
+                          <Button
+                            size="slim"
+                            onClick={loadExistingCalculators}
+                            loading={isLoadingCalculators}
+                          >
+                            Refresh
+                          </Button>
+                        </div>
+                        <Text variant="bodyLg" color="subdued">
+                          Click on a calculator to edit it in the builder
+                        </Text>
+                      </VerticalStack>
+                      
+                      <div style={{ 
+                        marginTop: '32px',
+                        maxHeight: '600px',
+                        overflowY: 'auto',
+                        paddingRight: '8px'
+                      }}>
+                        {isLoadingCalculators ? (
+                          <div style={{ 
+                            padding: '32px', 
+                            textAlign: 'center', 
+                            color: '#6d7175'
+                          }}>
+                            <Text variant="bodyLg">Loading calculators...</Text>
+                          </div>
+                        ) : existingCalculators && existingCalculators.length > 0 ? (
+                          <VerticalStack gap="3">
+                            {existingCalculators.map((calculator) => (
+                              <div
+                                key={calculator.id}
+                                style={{
+                                  padding: '20px',
+                                  border: editingCalculatorId === calculator.id ? '2px solid #007cba' : '2px solid #e1e3e5',
+                                  borderRadius: '12px',
+                                  cursor: 'pointer',
+                                  backgroundColor: editingCalculatorId === calculator.id ? '#f0f8ff' : 'white',
+                                  transition: 'all 0.2s ease'
+                                }}
+                                onClick={() => loadCalculatorForEditing(calculator)}
+                                onMouseEnter={(e) => {
+                                  if (editingCalculatorId !== calculator.id) {
+                                    e.currentTarget.style.borderColor = '#007cba';
+                                    e.currentTarget.style.backgroundColor = '#f6f6f7';
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (editingCalculatorId !== calculator.id) {
+                                    e.currentTarget.style.borderColor = '#e1e3e5';
+                                    e.currentTarget.style.backgroundColor = 'white';
+                                  }
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                  <div style={{ flex: 1 }}>
+                                    <Text variant="bodyMd" fontWeight="semibold">
+                                      {calculator.name}
+                                    </Text>
+                                    <Text variant="bodySm" color="subdued" style={{ marginTop: '4px' }}>
+                                      {calculator.description}
+                                    </Text>
+                                    <Text variant="bodySm" color="subdued" style={{ marginTop: '4px' }}>
+                                      Elements: {calculator.elements?.length || 0}
+                                    </Text>
+                                  </div>
+                                  <Badge status={calculator.status === 'active' ? 'success' : 'warning'}>
+                                    {calculator.status}
+                                  </Badge>
+                                </div>
+                              </div>
+                            ))}
+                            <div style={{ marginTop: '16px', padding: '16px', textAlign: 'center' }}>
+                              <Button
+                                onClick={startNewCalculator}
+                                icon={PlusMinor}
+                                fullWidth
+                              >
+                                Create New Calculator
+                              </Button>
+                            </div>
+                          </VerticalStack>
+                        ) : (
+                          <div style={{ 
+                            padding: '32px', 
+                            textAlign: 'center', 
+                            color: '#6d7175',
+                            backgroundColor: '#f6f6f7',
+                            borderRadius: '12px'
+                          }}>
+                            <Text variant="bodyLg">No calculators found</Text>
+                            <Text variant="bodyMd" color="subdued" style={{ marginTop: '8px' }}>
+                              Create your first calculator to get started
+                            </Text>
+                            <div style={{ marginTop: '16px' }}>
+                              <Button
+                                onClick={startNewCalculator}
+                                icon={PlusMinor}
+                              >
+                                Create New Calculator
+                              </Button>
+                            </div>
+                          </div>
                         )}
                       </div>
-                   </div>
-                 )}
+                    </div>
+                  )}
                   
-                 {leftActiveTab === 1 && renderPropertiesPanel()}
+                                   {leftActiveTab === 2 && renderPropertiesPanel()}
                 </Tabs>
               </LegacyCard>
             </div>
@@ -1637,6 +1960,15 @@ export default function CalculatorBuilder() {
                          placeholder="e.g., basePrice + (length * width * 0.15) + (materialMultiplier * length * width)"
                          multiline={6}
                          helpText="Use mathematical operators: +, -, *, /, () and variable names"
+                       />
+                       
+                       <TextField
+                         label="Base Price"
+                         value={basePrice}
+                         onChange={(value) => setBasePrice(parseFloat(value) || 50)}
+                         type="number"
+                         placeholder="50"
+                         helpText="Base price that will be added to all calculations"
                        />
                        
                        <div style={{ 

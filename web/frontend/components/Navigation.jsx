@@ -11,8 +11,6 @@ export default function AppNavigation() {
   const navItems = [
     { label: 'Home', icon: HomeMinor, url: '/', active: window.location.pathname === '/' },
     { label: 'Products', icon: ProductsMinor, url: '/products', active: window.location.pathname === '/products' },
-    { label: 'Calculators', icon: AnalyticsMinor, url: '/calculators', active: window.location.pathname === '/calculators' },
-    { label: 'Test Calculator', icon: AppsMinor, url: '/calculatorDemo', active: window.location.pathname === '/calculatorDemo' },
     { label: 'Create Calculator', icon: AppsMinor, url: '/calculatorBuilder', active: window.location.pathname === '/calculatorBuilder' },
     { label: 'Customer Calculator', icon: AnalyticsMinor, url: '/customerCalculator', active: window.location.pathname === '/customerCalculator' },
   ];

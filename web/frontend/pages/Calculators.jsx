@@ -32,31 +32,22 @@ export default function Calculators() {
     productIds: []
   });
 
-  // Fetch calculators from localStorage
+  // Fetch calculators from database API
   useEffect(() => {
     fetchCalculators();
   }, []);
 
-  // Listen for storage changes to refresh calculators when new ones are saved
-  useEffect(() => {
-    const handleStorageChange = (e) => {
-      if (e.key === 'bonimi_calculators') {
-        console.log('Calculators page: Storage changed, reloading calculators');
-        fetchCalculators();
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
-
-  const fetchCalculators = () => {
+  const fetchCalculators = async () => {
     try {
-      const displayCalculators = getCalculatorsForDisplay();
-      console.log('Loaded calculators from localStorage (transformed):', displayCalculators);
-      setCalculators(displayCalculators);
+      const response = await fetch('/api/calculators');
+      if (!response.ok) {
+        throw new Error('Failed to fetch calculators');
+      }
+      const data = await response.json();
+      console.log('Loaded calculators from API:', data);
+      setCalculators(data);
     } catch (error) {
-      console.error('Failed to fetch calculators from localStorage:', error);
+      console.error('Failed to fetch calculators from API:', error);
       setCalculators([]);
     }
   };
@@ -82,49 +73,76 @@ export default function Calculators() {
     setIsModalOpen(true);
   };
 
-  const handleSaveCalculator = () => {
+  const handleSaveCalculator = async () => {
     try {
-      const savedCalculators = JSON.parse(localStorage.getItem('bonimi_calculators') || '[]');
-      
       if (editingCalculator) {
         // Update existing calculator
-        const updatedCalculators = savedCalculators.map(calc => 
-          calc.id === editingCalculator.id 
-            ? { ...calc, ...formData, updatedAt: new Date().toISOString() }
-            : calc
-        );
-        localStorage.setItem('bonimi_calculators', JSON.stringify(updatedCalculators));
+        const response = await fetch(`/api/calculators/${editingCalculator.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...formData,
+            elements: formData.fields || formData.elements || []
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to update calculator');
+        }
+
+        const result = await response.json();
+        console.log('Calculator updated successfully:', result.calculator);
       } else {
         // Create new calculator
-        const newCalculator = {
-          id: `calc_${Date.now()}`,
-          ...formData,
-          status: 'active',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        const updatedCalculators = [...savedCalculators, newCalculator];
-        localStorage.setItem('bonimi_calculators', JSON.stringify(updatedCalculators));
+        const response = await fetch('/api/calculators', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...formData,
+            elements: formData.fields || formData.elements || []
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to create calculator');
+        }
+
+        const result = await response.json();
+        console.log('Calculator created successfully:', result.calculator);
       }
       
-      fetchCalculators(); // Refresh the list
+      // Refresh calculators list
+      fetchCalculators();
       setIsModalOpen(false);
-      console.log('Calculator saved successfully to localStorage');
     } catch (error) {
-      console.error('Failed to save calculator to localStorage:', error);
+      console.error('Error saving calculator:', error);
+      alert('Error saving calculator. Please try again.');
     }
   };
 
-  const handleDeleteCalculator = (id) => {
-    try {
-      const savedCalculators = JSON.parse(localStorage.getItem('bonimi_calculators') || '[]');
-      const updatedCalculators = savedCalculators.filter(calc => calc.id !== id);
-      localStorage.setItem('bonimi_calculators', JSON.stringify(updatedCalculators));
-      
-      fetchCalculators(); // Refresh the list
-      console.log('Calculator deleted successfully from localStorage');
-    } catch (error) {
-      console.error('Failed to delete calculator from localStorage:', error);
+  const handleDeleteCalculator = async (calculatorId) => {
+    if (window.confirm('Are you sure you want to delete this calculator?')) {
+      try {
+        const response = await fetch(`/api/calculators/${calculatorId}`, {
+          method: 'DELETE'
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to delete calculator');
+        }
+
+        console.log('Calculator deleted successfully');
+        
+        // Refresh calculators list
+        fetchCalculators();
+      } catch (error) {
+        console.error('Error deleting calculator:', error);
+        alert('Error deleting calculator. Please try again.');
+      }
     }
   };
 
@@ -132,7 +150,7 @@ export default function Calculators() {
     calculator.name,
     calculator.description,
     calculator.formula,
-    calculator.fields.map(f => typeof f === 'string' ? f : f.name).join(', '),
+    (calculator.fields || calculator.elements || []).map(f => typeof f === 'string' ? f : f.name || f.id).join(', '),
     <Badge status={calculator.status === 'active' ? 'success' : 'warning'}>
       {calculator.status}
     </Badge>,
